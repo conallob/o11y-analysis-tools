@@ -1,0 +1,55 @@
+groups:
+  - name: api-alerts
+    interval: 30s
+    rules:
+      - alert: HighErrorRate
+        expr: sum(rate(http_requests_total{job="api",status=~"5.."}[5m])) by (instance) / sum(rate(http_requests_total{job="api"}[5m])) by (instance) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High error rate on {{ $labels.instance }}"
+          description: "Error rate is {{ $value | humanizePercentage }}"
+
+      - alert: HighMemoryUsage
+        expr: |
+          (node_memory_MemTotal_bytes{job="node-exporter"} - node_memory_MemAvailable_bytes{job="node-exporter"})
+          / node_memory_MemTotal_bytes{job="node-exporter"} > 0.9
+        for: 10m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+
+      - alert: DiskSpaceLow
+        expr: node_filesystem_avail_bytes{job="node-exporter",mountpoint="/"} / node_filesystem_size_bytes{job="node-exporter",mountpoint="/"} < 0.1
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space low on {{ $labels.instance }}"
+
+  - name: database-alerts
+    interval: 30s
+    rules:
+      - alert: DatabaseConnectionPoolExhausted
+        expr: |
+          rate(database_connection_errors_total{job="postgres"}[5m]) > 0
+          and database_connections_active{job="postgres"} / database_connections_max{job="postgres"} > 0.95
+        for: 2m
+        labels:
+          severity: critical
+          team: database
+        annotations:
+          summary: "Database connection pool nearly exhausted"
+
+      - alert: SlowQueries
+        expr: rate(database_query_duration_seconds_sum{job="postgres"}[5m]) / rate(database_query_duration_seconds_count{job="postgres"}[5m]) > 1
+        for: 15m
+        labels:
+          severity: warning
+          team: database
+        annotations:
+          summary: "Average query time exceeds 1 second"
