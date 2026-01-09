@@ -5,18 +5,99 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/conallob/o11y-analysis-tools/internal/alertmanager"
 )
 
+// parseDuration parses a duration string supporting extended units:
+// - Standard Go units: ns, us/µs, ms, s, m, h
+// - Extended units: d (days), w (weeks), M (months ~30 days), y (years ~365 days)
+func parseDuration(s string) (time.Duration, error) {
+	// Try standard Go duration parsing first
+	if d, err := time.ParseDuration(s); err == nil {
+		return d, nil
+	}
+
+	// Parse extended duration formats
+	re := regexp.MustCompile(`^(\d+(?:\.\d+)?)(y|M|w|d)$`)
+	matches := re.FindStringSubmatch(s)
+	if matches == nil {
+		return 0, fmt.Errorf("invalid duration format: %s (supported units: h, m, s, d, w, M, y)", s)
+	}
+
+	value, err := strconv.ParseFloat(matches[1], 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid duration value: %s", matches[1])
+	}
+
+	unit := matches[2]
+	var duration time.Duration
+
+	switch unit {
+	case "d":
+		duration = time.Duration(value * 24 * float64(time.Hour))
+	case "w":
+		duration = time.Duration(value * 7 * 24 * float64(time.Hour))
+	case "M":
+		duration = time.Duration(value * 30 * 24 * float64(time.Hour))
+	case "y":
+		duration = time.Duration(value * 365 * 24 * float64(time.Hour))
+	default:
+		return 0, fmt.Errorf("unsupported duration unit: %s", unit)
+	}
+
+	return duration, nil
+}
+
+// formatDurationHuman formats a duration in human-readable format
+func formatDurationHuman(d time.Duration) string {
+	if d == 0 {
+		return "0s"
+	}
+
+	// Convert to largest sensible unit
+	hours := d.Hours()
+
+	switch {
+	case hours >= 8760: // ~1 year
+		years := hours / 8760
+		if years == float64(int(years)) {
+			return fmt.Sprintf("%dy", int(years))
+		}
+		return fmt.Sprintf("%.1fy", years)
+	case hours >= 720: // ~1 month
+		months := hours / 720
+		if months == float64(int(months)) {
+			return fmt.Sprintf("%dM", int(months))
+		}
+		return fmt.Sprintf("%.1fM", months)
+	case hours >= 168: // 1 week
+		weeks := hours / 168
+		if weeks == float64(int(weeks)) {
+			return fmt.Sprintf("%dw", int(weeks))
+		}
+		return fmt.Sprintf("%.1fw", weeks)
+	case hours >= 24: // 1 day
+		days := hours / 24
+		if days == float64(int(days)) {
+			return fmt.Sprintf("%dd", int(days))
+		}
+		return fmt.Sprintf("%.1fd", days)
+	default:
+		return d.String()
+	}
+}
+
 func main() {
 	var (
-		prometheusURL = flag.String("prometheus-url", "http://localhost:9090", "Prometheus server URL")
-		rulesFile     = flag.String("rules", "", "path to Prometheus rules file (required)")
-		threshold     = flag.Duration("threshold", 8760*time.Hour, "time threshold for stale alerts (default: 8760h = 12 months)")
-		fixMode       = flag.Bool("fix", false, "automatically delete stale alerts from rules file")
-		verbose       = flag.Bool("verbose", false, "verbose output")
+		prometheusURL  = flag.String("prometheus-url", "http://localhost:9090", "Prometheus server URL")
+		rulesFile      = flag.String("rules", "", "path to Prometheus rules file (required)")
+		timeHorizonStr = flag.String("timehorizon", "12M", "time horizon for stale alerts (units: h=hours, d=days, w=weeks, M=months, y=years)")
+		fixMode        = flag.Bool("fix", false, "automatically delete stale alerts from rules file")
+		verbose        = flag.Bool("verbose", false, "verbose output")
 	)
 
 	flag.Usage = func() {
@@ -25,13 +106,21 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Stale alerts may indicate outdated monitoring or resolved issues that no longer need alerting.\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nTime Horizon Units:\n")
+		fmt.Fprintf(os.Stderr, "  h  - hours\n")
+		fmt.Fprintf(os.Stderr, "  d  - days\n")
+		fmt.Fprintf(os.Stderr, "  w  - weeks\n")
+		fmt.Fprintf(os.Stderr, "  M  - months (30 days)\n")
+		fmt.Fprintf(os.Stderr, "  y  - years (365 days)\n")
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  # Check for stale alerts (default 12 months)\n")
 		fmt.Fprintf(os.Stderr, "  stale-alerts-analyzer --prometheus-url=http://prometheus:9090 --rules=./alerts.yml\n\n")
-		fmt.Fprintf(os.Stderr, "  # Check with custom threshold (6 months)\n")
-		fmt.Fprintf(os.Stderr, "  stale-alerts-analyzer --rules=./alerts.yml --threshold=4380h\n\n")
+		fmt.Fprintf(os.Stderr, "  # Check with custom time horizon (6 months)\n")
+		fmt.Fprintf(os.Stderr, "  stale-alerts-analyzer --rules=./alerts.yml --timehorizon=6M\n\n")
+		fmt.Fprintf(os.Stderr, "  # Check with time horizon in days (90 days)\n")
+		fmt.Fprintf(os.Stderr, "  stale-alerts-analyzer --rules=./alerts.yml --timehorizon=90d\n\n")
 		fmt.Fprintf(os.Stderr, "  # Fix mode: automatically delete stale alerts\n")
-		fmt.Fprintf(os.Stderr, "  stale-alerts-analyzer --fix --rules=./alerts.yml --threshold=8760h\n")
+		fmt.Fprintf(os.Stderr, "  stale-alerts-analyzer --fix --rules=./alerts.yml --timehorizon=1y\n")
 	}
 
 	flag.Parse()
@@ -48,8 +137,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	if *threshold <= 0 {
-		fmt.Fprintf(os.Stderr, "Error: --threshold must be positive\n")
+	// Parse time horizon
+	timeHorizon, err := parseDuration(*timeHorizonStr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: invalid --timehorizon value: %v\n", err)
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	if timeHorizon <= 0 {
+		fmt.Fprintf(os.Stderr, "Error: --timehorizon must be positive\n")
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -72,10 +169,10 @@ func main() {
 
 	// Query Prometheus for last firing times
 	fmt.Printf("Querying Prometheus at %s...\n", *prometheusURL)
-	fmt.Printf("Looking back %s for alert activity...\n", *threshold)
+	fmt.Printf("Looking back %s for alert activity...\n", formatDurationHuman(timeHorizon))
 	fmt.Println()
 
-	lastFired, err := alertmanager.FindLastFiredTimes(*prometheusURL, alertNames, *threshold, *verbose)
+	lastFired, err := alertmanager.FindLastFiredTimes(*prometheusURL, alertNames, timeHorizon, *verbose)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error querying Prometheus: %v\n", err)
 		os.Exit(1)
@@ -83,7 +180,7 @@ func main() {
 
 	// Analyze results to find stale alerts
 	now := time.Now()
-	staleThreshold := now.Add(-*threshold)
+	staleThreshold := now.Add(-timeHorizon)
 
 	var staleAlerts []string
 	var activeAlerts []string
@@ -114,7 +211,7 @@ func main() {
 
 	if len(activeAlerts) > 0 {
 		fmt.Printf("✓ Active Alerts (%d):\n", len(activeAlerts))
-		fmt.Println("  These alerts have fired within the threshold period.")
+		fmt.Printf("  These alerts have fired within the time horizon (%s).\n", formatDurationHuman(timeHorizon))
 		fmt.Println()
 		for _, alertName := range activeAlerts {
 			lastTime := lastFired[alertName]
@@ -127,7 +224,7 @@ func main() {
 
 	if len(staleAlerts) > 0 {
 		fmt.Printf("⚠ Stale Alerts (%d):\n", len(staleAlerts))
-		fmt.Printf("  These alerts have not fired in the last %s.\n", *threshold)
+		fmt.Printf("  These alerts have not fired in the last %s.\n", formatDurationHuman(timeHorizon))
 		fmt.Println()
 
 		for _, alertName := range staleAlerts {
