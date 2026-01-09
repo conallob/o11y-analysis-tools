@@ -1,3 +1,4 @@
+// Package promql provides utilities for parsing and analyzing PromQL expressions.
 package promql
 
 import (
@@ -8,10 +9,10 @@ import (
 
 // LabelViolation represents a PromQL expression that's missing required labels
 type LabelViolation struct {
-	Expression     string
-	MissingLabels  []string
-	Line           int
-	Suggestion     string
+	Expression    string
+	MissingLabels []string
+	Line          int
+	Suggestion    string
 }
 
 // CheckRequiredLabels checks PromQL expressions for required labels
@@ -120,17 +121,17 @@ func extractLabelsFromExpression(expr string) []string {
 // isPromQLKeyword checks if a string is a PromQL keyword
 func isPromQLKeyword(s string) bool {
 	keywords := map[string]bool{
-		"and":      true,
-		"or":       true,
-		"unless":   true,
-		"by":       true,
-		"without":  true,
-		"on":       true,
-		"ignoring": true,
-		"group_left": true,
+		"and":         true,
+		"or":          true,
+		"unless":      true,
+		"by":          true,
+		"without":     true,
+		"on":          true,
+		"ignoring":    true,
+		"group_left":  true,
 		"group_right": true,
-		"bool":     true,
-		"offset":   true,
+		"bool":        true,
+		"offset":      true,
 	}
 
 	return keywords[strings.ToLower(s)]

@@ -1,3 +1,4 @@
+// Package main provides the alert-hysteresis command for analyzing alert firing patterns.
 package main
 
 import (

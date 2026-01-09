@@ -1,9 +1,9 @@
+// Package main provides the label-check command for validating required labels in PromQL expressions.
 package main
 
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,7 +61,7 @@ func main() {
 				return nil
 			}
 
-			content, err := ioutil.ReadFile(filePath)
+			content, err := os.ReadFile(filePath)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", filePath, err)
 				exitCode = 1

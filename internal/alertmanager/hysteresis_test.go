@@ -142,16 +142,16 @@ func TestAnalyzeAlertRecommendation(t *testing.T) {
 	// Create events where 30% are short-lived (under 2 minutes)
 	// and 70% are longer
 	events := []AlertEvent{
-		{Duration: 30 * time.Second},  // spurious
-		{Duration: 45 * time.Second},  // spurious
-		{Duration: 1 * time.Minute},   // spurious
-		{Duration: 5 * time.Minute},   // legitimate
-		{Duration: 10 * time.Minute},  // legitimate
-		{Duration: 8 * time.Minute},   // legitimate
-		{Duration: 12 * time.Minute},  // legitimate
-		{Duration: 6 * time.Minute},   // legitimate
-		{Duration: 7 * time.Minute},   // legitimate
-		{Duration: 9 * time.Minute},   // legitimate
+		{Duration: 30 * time.Second}, // spurious
+		{Duration: 45 * time.Second}, // spurious
+		{Duration: 1 * time.Minute},  // spurious
+		{Duration: 5 * time.Minute},  // legitimate
+		{Duration: 10 * time.Minute}, // legitimate
+		{Duration: 8 * time.Minute},  // legitimate
+		{Duration: 12 * time.Minute}, // legitimate
+		{Duration: 6 * time.Minute},  // legitimate
+		{Duration: 7 * time.Minute},  // legitimate
+		{Duration: 9 * time.Minute},  // legitimate
 	}
 
 	analysis := analyzer.AnalyzeAlert("TestAlert", events)

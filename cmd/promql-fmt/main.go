@@ -1,9 +1,9 @@
+// Package main provides the promql-fmt command for formatting PromQL expressions in YAML files.
 package main
 
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,10 +13,11 @@ import (
 
 func main() {
 	var (
-		fix     = flag.Bool("fix", false, "automatically fix formatting issues")
-		fmt_    = flag.Bool("fmt", false, "automatically fix formatting issues (alias for --fix)")
-		check   = flag.Bool("check", true, "check formatting without fixing (default)")
-		verbose = flag.Bool("verbose", false, "verbose output")
+		fix              = flag.Bool("fix", false, "automatically fix formatting issues")
+		fmtFlag          = flag.Bool("fmt", false, "automatically fix formatting issues (alias for --fix)")
+		check            = flag.Bool("check", true, "check formatting without fixing (default)")
+		verbose          = flag.Bool("verbose", false, "verbose output")
+		disableLineCheck = flag.Bool("disable-line-length", false, "disable line length checks for long metric names")
 	)
 
 	flag.Usage = func() {
@@ -34,7 +35,7 @@ func main() {
 	}
 
 	// --fix and --fmt are aliases
-	shouldFix := *fix || *fmt_
+	shouldFix := *fix || *fmtFlag
 	shouldCheck := *check && !shouldFix
 
 	exitCode := 0
@@ -59,14 +60,17 @@ func main() {
 
 			totalFiles++
 
-			content, err := ioutil.ReadFile(filePath)
+			content, err := os.ReadFile(filePath)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", filePath, err)
 				exitCode = 1
 				return nil
 			}
 
-			issues, formatted := formatting.CheckAndFormatPromQL(string(content))
+			opts := formatting.CheckOptions{
+				DisableLineLength: *disableLineCheck,
+			}
+			issues, formatted := formatting.CheckAndFormatPromQL(string(content), opts)
 
 			if len(issues) > 0 {
 				filesWithIssues++
@@ -83,7 +87,7 @@ func main() {
 				if *verbose {
 					fmt.Printf("Fixing %s\n", filePath)
 				}
-				if err := ioutil.WriteFile(filePath, []byte(formatted), info.Mode()); err != nil {
+				if err := os.WriteFile(filePath, []byte(formatted), info.Mode()); err != nil {
 					fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", filePath, err)
 					exitCode = 1
 				}

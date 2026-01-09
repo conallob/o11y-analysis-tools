@@ -1,11 +1,13 @@
+// Package alertmanager provides utilities for analyzing Alertmanager alert firing patterns and hysteresis.
 package alertmanager
 
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"time"
 
@@ -29,15 +31,15 @@ type AlertEvent struct {
 
 // AlertAnalysis contains the analysis results for an alert
 type AlertAnalysis struct {
-	AlertName       string
-	FiringCount     int
-	AvgDuration     time.Duration
-	MedianDuration  time.Duration
-	MinDuration     time.Duration
-	MaxDuration     time.Duration
-	RecommendedFor  time.Duration
-	SpuriousAlerts  int
-	Reasoning       string
+	AlertName      string
+	FiringCount    int
+	AvgDuration    time.Duration
+	MedianDuration time.Duration
+	MinDuration    time.Duration
+	MaxDuration    time.Duration
+	RecommendedFor time.Duration
+	SpuriousAlerts int
+	Reasoning      string
 }
 
 // PrometheusResponse represents the Prometheus API response
@@ -89,11 +91,17 @@ func (a *HysteresisAnalyzer) FetchAlertHistory(timeframe time.Duration, alertNam
 	if err != nil {
 		return nil, fmt.Errorf("failed to query Prometheus: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			if err == nil {
+				err = closeErr
+			}
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := ioutil.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Prometheus returned status %d: %s", resp.StatusCode, string(body))
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("prometheus returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	// Parse response
@@ -130,13 +138,11 @@ func (a *HysteresisAnalyzer) FetchAlertHistory(timeframe time.Duration, alertNam
 				}
 				// Update end time as long as alert is firing
 				currentEvent.EndsAt = time.Unix(timestamp, 0)
-			} else {
+			} else if currentEvent != nil {
 				// Alert stopped firing
-				if currentEvent != nil {
-					currentEvent.Duration = currentEvent.EndsAt.Sub(currentEvent.StartsAt)
-					events[alertName] = append(events[alertName], *currentEvent)
-					currentEvent = nil
-				}
+				currentEvent.Duration = currentEvent.EndsAt.Sub(currentEvent.StartsAt)
+				events[alertName] = append(events[alertName], *currentEvent)
+				currentEvent = nil
 			}
 		}
 
@@ -270,7 +276,7 @@ type PrometheusRules struct {
 
 // LoadAlertDurations loads configured 'for' durations from a Prometheus rules file
 func LoadAlertDurations(filename string) (map[string]time.Duration, error) {
-	content, err := ioutil.ReadFile(filename)
+	content, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
