@@ -24,9 +24,10 @@ func main() {
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: alert-hysteresis [options]\n\n")
-		fmt.Fprintf(os.Stderr, "Analyze alert firing patterns and suggest optimal 'for' durations.\n")
-		fmt.Fprintf(os.Stderr, "Reduces spurious, unactionable alerts by comparing actual firing durations\n")
-		fmt.Fprintf(os.Stderr, "with configured hysteresis values.\n\n")
+		fmt.Fprintf(os.Stderr, "Analyze alert firing patterns and suggest optimal 'for' durations (hysteresis).\n")
+		fmt.Fprintf(os.Stderr, "Hysteresis (also known as 'hold down' or 'hold up' timers in networking) prevents\n")
+		fmt.Fprintf(os.Stderr, "spurious alerts by requiring a condition to persist for a minimum duration before\n")
+		fmt.Fprintf(os.Stderr, "triggering. This reduces alert fatigue from transient issues.\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExample:\n")

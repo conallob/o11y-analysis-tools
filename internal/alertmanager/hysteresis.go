@@ -1,4 +1,8 @@
 // Package alertmanager provides utilities for analyzing Alertmanager alert firing patterns and hysteresis.
+//
+// Hysteresis (also known as "hold down" or "hold up" timers in networking) is the practice of
+// requiring an alert condition to persist for a minimum duration before triggering. This prevents
+// spurious alerts from transient issues and reduces alert fatigue by filtering short-lived events.
 package alertmanager
 
 import (
