@@ -1,0 +1,7 @@
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+COPY promql-fmt /usr/local/bin/promql-fmt
+
+ENTRYPOINT ["/usr/local/bin/promql-fmt"]

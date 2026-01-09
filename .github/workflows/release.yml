@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Install and configure Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+          # Enable Podman socket for Docker compatibility
+          sudo systemctl enable --now podman.socket
+          sudo ln -sf /run/podman/podman.sock /var/run/docker.sock
+          # Verify Podman works
+          podman version
+          podman info
+
+      - name: Set up Docker Buildx with Podman driver
+        run: |
+          # Create a buildx builder that uses Podman
+          docker buildx create --name podman-builder --driver docker-container --driver-opt image=moby/buildkit:latest --use
+          docker buildx inspect --bootstrap
+
+      - name: Login to GitHub Container Registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+          # Also login via docker for buildx
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+
+      # Per https://goreleaser.com/ci/actions/#workflow
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+            distribution: goreleaser
+            version: "~> v2"
+            args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GPG_KEY_FILE: ${{ secrets.GPG_KEY_FILE }}

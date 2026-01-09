@@ -1,0 +1,7 @@
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+COPY alert-hysteresis /usr/local/bin/alert-hysteresis
+
+ENTRYPOINT ["/usr/local/bin/alert-hysteresis"]

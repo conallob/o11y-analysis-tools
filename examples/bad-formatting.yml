@@ -1,0 +1,17 @@
+groups:
+  - name: poorly-formatted-alerts
+    rules:
+      # This expression is too long and should be multiline
+      - alert: VeryLongExpression
+        expr: sum(rate(http_requests_total{job="api",status=~"5.."}[5m])) by (instance) / sum(rate(http_requests_total{job="api"}[5m])) by (instance) > 0.05
+        for: 5m
+
+      # Missing job label - will fail label-check
+      - alert: MissingJobLabel
+        expr: rate(http_requests_total[5m]) > 100
+        for: 2m
+
+      # Another long expression
+      - alert: ComplexQuery
+        expr: (sum(rate(container_cpu_usage_seconds_total{namespace="production",pod=~"api-.*"}[5m])) by (pod) / sum(container_spec_cpu_quota{namespace="production",pod=~"api-.*"}) by (pod)) > 0.8
+        for: 10m

@@ -1,0 +1,7 @@
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+COPY label-check /usr/local/bin/label-check
+
+ENTRYPOINT ["/usr/local/bin/label-check"]
