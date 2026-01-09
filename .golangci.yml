@@ -1,4 +1,4 @@
-version: 2
+version: "2"
 
 run:
   timeout: 5m
@@ -15,26 +15,6 @@ linters:
     - revive
     - gocritic
 
-formatters:
-  enable:
-    - gofmt
-    - goimports
-
-linters-settings:
-  errcheck:
-    check-blank: true
-  govet:
-    check-shadowing: true
-  revive:
-    rules:
-      - name: exported
-        disabled: true
-
-formatters-settings:
-  gofmt:
-    simplify: true
-
 issues:
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
