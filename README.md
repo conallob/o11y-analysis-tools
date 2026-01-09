@@ -139,6 +139,52 @@ Found 1 alerts that need hysteresis adjustment
 
 ## Installation
 
+### Homebrew (macOS/Linux)
+
+```bash
+brew install conallob/tap/o11y-analysis-tools
+```
+
+### Container Images
+
+Each tool is available as a container image:
+
+```bash
+# Pull specific tool
+docker pull ghcr.io/conallob/promql-fmt:latest
+docker pull ghcr.io/conallob/label-check:latest
+docker pull ghcr.io/conallob/alert-hysteresis:latest
+
+# Run in container
+docker run -v $(pwd):/data ghcr.io/conallob/promql-fmt:latest --check /data
+docker run -v $(pwd):/data ghcr.io/conallob/label-check:latest /data
+```
+
+### Package Managers
+
+**Debian/Ubuntu:**
+```bash
+# Download .deb from releases page
+wget https://github.com/conallob/o11y-analysis-tools/releases/download/vX.Y.Z/o11y-analysis-tools_X.Y.Z_linux_amd64.deb
+sudo dpkg -i o11y-analysis-tools_X.Y.Z_linux_amd64.deb
+```
+
+**RHEL/Fedora/CentOS:**
+```bash
+# Download .rpm from releases page
+wget https://github.com/conallob/o11y-analysis-tools/releases/download/vX.Y.Z/o11y-analysis-tools_X.Y.Z_linux_amd64.rpm
+sudo rpm -i o11y-analysis-tools_X.Y.Z_linux_amd64.rpm
+```
+
+### Pre-built Binaries
+
+Download the latest release for your platform from the [releases page](https://github.com/conallob/o11y-analysis-tools/releases).
+
+Binaries are available for:
+- Linux (amd64, arm64)
+- macOS (amd64, arm64)
+- Windows (amd64, arm64)
+
 ### Build from source
 
 ```bash
@@ -156,12 +202,6 @@ go build -o bin/alert-hysteresis ./cmd/alert-hysteresis
 
 # Install to $GOPATH/bin
 make install
-```
-
-### Download pre-built binaries
-
-```bash
-# Coming soon - check releases page
 ```
 
 ## CI/CD Integration
@@ -308,6 +348,41 @@ Contributions are welcome! Please:
 3. Add tests for new functionality
 4. Ensure all tests pass: `make test`
 5. Submit a pull request
+
+## Releasing
+
+Releases are automated using GitHub Actions and GoReleaser.
+
+### Creating a Release
+
+1. Ensure all tests pass: `make test`
+2. Create and push a new tag:
+   ```bash
+   git tag -a v1.0.0 -m "Release v1.0.0"
+   git push origin v1.0.0
+   ```
+3. GitHub Actions will automatically:
+   - Build binaries for all platforms
+   - Create RPM and Deb packages
+   - Build and push container images to ghcr.io
+   - Publish Homebrew formula to conallob/homebrew-tap
+   - Create a GitHub release with artifacts
+
+### Prerequisites for Releases
+
+Repository secrets required:
+- `GITHUB_TOKEN` - Automatically provided by GitHub Actions
+- `HOMEBREW_TAP_TOKEN` - Personal access token with write access to homebrew-tap repo
+- `GPG_KEY_FILE` - (Optional) GPG key for signing packages
+
+### Release Artifacts
+
+Each release includes:
+- Binary archives (tar.gz/zip) for Linux, macOS, Windows (amd64, arm64)
+- Debian packages (.deb)
+- RPM packages (.rpm)
+- Container images (multi-arch) on GitHub Container Registry
+- Homebrew formula in conallob/homebrew-tap
 
 ## License
 

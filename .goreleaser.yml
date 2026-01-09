@@ -1,0 +1,301 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: promql-fmt
+    main: ./cmd/promql-fmt
+    binary: promql-fmt
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+  - id: label-check
+    main: ./cmd/label-check
+    binary: label-check
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+  - id: alert-hysteresis
+    main: ./cmd/alert-hysteresis
+    binary: alert-hysteresis
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+      - examples/*
+
+nfpms:
+  - id: packages
+    package_name: o11y-analysis-tools
+    vendor: Conall O'Brien
+    homepage: https://github.com/conallob/o11y-analysis-tools
+    maintainer: Conall O'Brien <conall@example.com>
+    description: Static analysis and testing tools for PromQL-compatible monitoring systems
+    license: Apache 2.0
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/bin
+    contents:
+      - src: ./examples/*.yml
+        dst: /usr/share/o11y-analysis-tools/examples/
+      - src: ./README.md
+        dst: /usr/share/doc/o11y-analysis-tools/README.md
+      - src: ./LICENSE
+        dst: /usr/share/doc/o11y-analysis-tools/LICENSE
+    scripts:
+      postinstall: "scripts/postinstall.sh"
+    rpm:
+      signature:
+        key_file: "{{ .Env.GPG_KEY_FILE }}"
+    deb:
+      signature:
+        key_file: "{{ .Env.GPG_KEY_FILE }}"
+
+dockers:
+  - id: promql-fmt
+    ids:
+      - promql-fmt
+    image_templates:
+      - "ghcr.io/conallob/promql-fmt:{{ .Version }}-amd64"
+      - "ghcr.io/conallob/promql-fmt:latest-amd64"
+    dockerfile: Dockerfile.promql-fmt
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=promql-fmt"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+
+  - id: promql-fmt-arm64
+    ids:
+      - promql-fmt
+    image_templates:
+      - "ghcr.io/conallob/promql-fmt:{{ .Version }}-arm64"
+      - "ghcr.io/conallob/promql-fmt:latest-arm64"
+    dockerfile: Dockerfile.promql-fmt
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=promql-fmt"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+    goarch: arm64
+
+  - id: label-check
+    ids:
+      - label-check
+    image_templates:
+      - "ghcr.io/conallob/label-check:{{ .Version }}-amd64"
+      - "ghcr.io/conallob/label-check:latest-amd64"
+    dockerfile: Dockerfile.label-check
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=label-check"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+
+  - id: label-check-arm64
+    ids:
+      - label-check
+    image_templates:
+      - "ghcr.io/conallob/label-check:{{ .Version }}-arm64"
+      - "ghcr.io/conallob/label-check:latest-arm64"
+    dockerfile: Dockerfile.label-check
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=label-check"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+    goarch: arm64
+
+  - id: alert-hysteresis
+    ids:
+      - alert-hysteresis
+    image_templates:
+      - "ghcr.io/conallob/alert-hysteresis:{{ .Version }}-amd64"
+      - "ghcr.io/conallob/alert-hysteresis:latest-amd64"
+    dockerfile: Dockerfile.alert-hysteresis
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=alert-hysteresis"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+
+  - id: alert-hysteresis-arm64
+    ids:
+      - alert-hysteresis
+    image_templates:
+      - "ghcr.io/conallob/alert-hysteresis:{{ .Version }}-arm64"
+      - "ghcr.io/conallob/alert-hysteresis:latest-arm64"
+    dockerfile: Dockerfile.alert-hysteresis
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=alert-hysteresis"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+    goarch: arm64
+
+docker_manifests:
+  - name_template: "ghcr.io/conallob/promql-fmt:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/conallob/promql-fmt:{{ .Version }}-amd64"
+      - "ghcr.io/conallob/promql-fmt:{{ .Version }}-arm64"
+
+  - name_template: "ghcr.io/conallob/promql-fmt:latest"
+    image_templates:
+      - "ghcr.io/conallob/promql-fmt:latest-amd64"
+      - "ghcr.io/conallob/promql-fmt:latest-arm64"
+
+  - name_template: "ghcr.io/conallob/label-check:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/conallob/label-check:{{ .Version }}-amd64"
+      - "ghcr.io/conallob/label-check:{{ .Version }}-arm64"
+
+  - name_template: "ghcr.io/conallob/label-check:latest"
+    image_templates:
+      - "ghcr.io/conallob/label-check:latest-amd64"
+      - "ghcr.io/conallob/label-check:latest-arm64"
+
+  - name_template: "ghcr.io/conallob/alert-hysteresis:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/conallob/alert-hysteresis:{{ .Version }}-amd64"
+      - "ghcr.io/conallob/alert-hysteresis:{{ .Version }}-arm64"
+
+  - name_template: "ghcr.io/conallob/alert-hysteresis:latest"
+    image_templates:
+      - "ghcr.io/conallob/alert-hysteresis:latest-amd64"
+      - "ghcr.io/conallob/alert-hysteresis:latest-arm64"
+
+brews:
+  - name: o11y-analysis-tools
+    repository:
+      owner: conallob
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    folder: Formula
+    homepage: https://github.com/conallob/o11y-analysis-tools
+    description: Static analysis and testing tools for PromQL-compatible monitoring systems
+    license: Apache-2.0
+    install: |
+      bin.install "promql-fmt"
+      bin.install "label-check"
+      bin.install "alert-hysteresis"
+    test: |
+      system "#{bin}/promql-fmt", "--help"
+      system "#{bin}/label-check", "--help"
+      system "#{bin}/alert-hysteresis", "--help"
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: Features
+      regexp: "^.*feat[(\\w)]*:+.*$"
+      order: 0
+    - title: 'Bug fixes'
+      regexp: "^.*fix[(\\w)]*:+.*$"
+      order: 1
+    - title: 'Enhancements'
+      regexp: "^.*enhancement[(\\w)]*:+.*$"
+      order: 2
+    - title: Others
+      order: 999
+
+release:
+  github:
+    owner: conallob
+    name: o11y-analysis-tools
+  draft: false
+  prerelease: auto
+  name_template: "{{.ProjectName}}-v{{.Version}}"
+  footer: |
+    ## Installation
+
+    ### Homebrew (macOS/Linux)
+    ```bash
+    brew install conallob/tap/o11y-analysis-tools
+    ```
+
+    ### Binary Downloads
+    Download the latest release for your platform from the [releases page](https://github.com/conallob/o11y-analysis-tools/releases).
+
+    ### Container Images
+    ```bash
+    docker pull ghcr.io/conallob/promql-fmt:{{ .Version }}
+    docker pull ghcr.io/conallob/label-check:{{ .Version }}
+    docker pull ghcr.io/conallob/alert-hysteresis:{{ .Version }}
+    ```
+
+    ### Package Managers
+    - **Debian/Ubuntu**: `dpkg -i o11y-analysis-tools_{{ .Version }}_linux_amd64.deb`
+    - **RHEL/Fedora**: `rpm -i o11y-analysis-tools_{{ .Version }}_linux_amd64.rpm`
