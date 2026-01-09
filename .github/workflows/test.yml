@@ -27,7 +27,7 @@ jobs:
         run: go mod download
 
       - name: Run tests
-        run: go test -v -race -coverprofile=coverage.out ./...
+        run: go test -v -race -coverprofile=coverage.txt ./...
 
       - name: Build
         run: |
@@ -39,7 +39,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.go == '1.21'
         uses: codecov/codecov-action@v3
         with:
-          files: ./coverage.out
+          files: ./coverage.txt
 
   golangci:
     name: lint
