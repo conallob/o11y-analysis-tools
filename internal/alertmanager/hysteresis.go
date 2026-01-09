@@ -224,7 +224,9 @@ func (a *HysteresisAnalyzer) AnalyzeAlertWithPercentile(alertName string, events
 	analysis.P90Duration = durations[p90Index]
 
 	// Recommend 'for' duration based on target percentile
-	// Strategy: Use a percentile approach to filter out spurious short-lived alerts
+	// Strategy: Use a percentile approach to balance alert sensitivity vs. robustness
+	// - Lower percentiles (e.g., 0.2): More sensitive, may catch transient issues
+	// - Higher percentiles (e.g., 0.5-0.7): More robust, ignores transient issues
 	targetIndex := int(float64(len(durations)) * targetPercentile)
 	if targetIndex >= len(durations) {
 		targetIndex = len(durations) - 1
@@ -246,17 +248,34 @@ func (a *HysteresisAnalyzer) AnalyzeAlertWithPercentile(alertName string, events
 		}
 	}
 
-	// Generate reasoning
+	// Generate reasoning with context about sensitivity
 	if analysis.SpuriousAlerts > 0 {
 		percentage := float64(analysis.SpuriousAlerts) / float64(len(events)) * 100
+		sensitivityNote := getSensitivityNote(targetPercentile)
 		analysis.Reasoning = fmt.Sprintf(
-			"%.1f%% of alerts (%d/%d) fire for less than %s, suggesting spurious alerts",
-			percentage, analysis.SpuriousAlerts, len(events), recommended.Round(time.Second))
+			"%.1f%% of alerts (%d/%d) fire for less than %s (%s)",
+			percentage, analysis.SpuriousAlerts, len(events), recommended.Round(time.Second), sensitivityNote)
 	} else {
 		analysis.Reasoning = "All alerts fire for longer than the recommended duration"
 	}
 
 	return analysis
+}
+
+// getSensitivityNote returns a description of the sensitivity level based on target percentile
+func getSensitivityNote(percentile float64) string {
+	switch {
+	case percentile < 0.25:
+		return "very sensitive, may catch transient issues"
+	case percentile < 0.4:
+		return "more sensitive, may catch transient issues"
+	case percentile < 0.6:
+		return "balanced sensitivity"
+	case percentile < 0.75:
+		return "more robust, ignores transient issues"
+	default:
+		return "very robust, ignores transient issues"
+	}
 }
 
 // roundToSensibleDuration rounds a duration to sensible alert 'for' values
