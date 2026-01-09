@@ -1,6 +1,7 @@
 package alertmanager
 
 import (
+	"os"
 	"testing"
 	"time"
 )
@@ -199,4 +200,151 @@ func TestLoadAlertDurations(t *testing.T) {
 	// This test would require a temporary file
 	// Skipping for now - would need to create a temp YAML file
 	t.Skip("Requires file I/O - implement with temp files")
+}
+
+func TestGetAlertNamesFromRules(t *testing.T) {
+	// Create a temporary rules file
+	tmpFile := t.TempDir() + "/test-rules.yml"
+	content := `groups:
+  - name: test-group
+    rules:
+      - alert: HighErrorRate
+        expr: error_rate > 0.1
+        for: 5m
+      - alert: LowDiskSpace
+        expr: disk_usage > 90
+        for: 10m
+      - alert: HighCPU
+        expr: cpu_usage > 80
+        for: 2m
+`
+	if err := writeTestFile(tmpFile, content); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	alertNames, err := GetAlertNamesFromRules(tmpFile)
+	if err != nil {
+		t.Fatalf("GetAlertNamesFromRules failed: %v", err)
+	}
+
+	expected := map[string]bool{
+		"HighErrorRate":  true,
+		"LowDiskSpace":   true,
+		"HighCPU":        true,
+	}
+
+	if len(alertNames) != len(expected) {
+		t.Errorf("Got %d alerts, want %d", len(alertNames), len(expected))
+	}
+
+	for _, name := range alertNames {
+		if !expected[name] {
+			t.Errorf("Unexpected alert name: %s", name)
+		}
+	}
+}
+
+func TestDeleteAlertsFromRules(t *testing.T) {
+	// Create a temporary rules file
+	tmpFile := t.TempDir() + "/test-rules.yml"
+	content := `groups:
+  - name: test-group
+    rules:
+      - alert: HighErrorRate
+        for: 5m
+      - alert: LowDiskSpace
+        for: 10m
+      - alert: HighCPU
+        for: 2m
+`
+	if err := writeTestFile(tmpFile, content); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Delete one alert
+	toDelete := []string{"LowDiskSpace"}
+	if err := DeleteAlertsFromRules(tmpFile, toDelete); err != nil {
+		t.Fatalf("DeleteAlertsFromRules failed: %v", err)
+	}
+
+	// Verify the alert was deleted
+	alertNames, err := GetAlertNamesFromRules(tmpFile)
+	if err != nil {
+		t.Fatalf("GetAlertNamesFromRules failed: %v", err)
+	}
+
+	if len(alertNames) != 2 {
+		t.Errorf("Expected 2 alerts after deletion, got %d", len(alertNames))
+	}
+
+	for _, name := range alertNames {
+		if name == "LowDiskSpace" {
+			t.Error("LowDiskSpace should have been deleted")
+		}
+	}
+}
+
+func TestDeleteMultipleAlertsFromRules(t *testing.T) {
+	// Create a temporary rules file
+	tmpFile := t.TempDir() + "/test-rules.yml"
+	content := `groups:
+  - name: test-group
+    rules:
+      - alert: Alert1
+        for: 5m
+      - alert: Alert2
+        for: 10m
+      - alert: Alert3
+        for: 2m
+      - alert: Alert4
+        for: 1m
+`
+	if err := writeTestFile(tmpFile, content); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Delete multiple alerts
+	toDelete := []string{"Alert1", "Alert3"}
+	if err := DeleteAlertsFromRules(tmpFile, toDelete); err != nil {
+		t.Fatalf("DeleteAlertsFromRules failed: %v", err)
+	}
+
+	// Verify only expected alerts remain
+	alertNames, err := GetAlertNamesFromRules(tmpFile)
+	if err != nil {
+		t.Fatalf("GetAlertNamesFromRules failed: %v", err)
+	}
+
+	if len(alertNames) != 2 {
+		t.Errorf("Expected 2 alerts after deletion, got %d", len(alertNames))
+	}
+
+	expected := map[string]bool{
+		"Alert2": true,
+		"Alert4": true,
+	}
+
+	for _, name := range alertNames {
+		if !expected[name] {
+			t.Errorf("Unexpected alert: %s", name)
+		}
+	}
+}
+
+// writeTestFile is a helper function to write test files
+func writeTestFile(filename, content string) error {
+	file, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			if err == nil {
+				err = closeErr
+			}
+		}
+	}()
+
+	_, err = file.WriteString(content)
+	return err
 }
