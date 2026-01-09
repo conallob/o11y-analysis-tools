@@ -1,4 +1,8 @@
 // Package alertmanager provides utilities for analyzing Alertmanager alert firing patterns and hysteresis.
+//
+// Hysteresis (also known as "hold down" or "hold up" timers in networking) is the practice of
+// requiring an alert condition to persist for a minimum duration before triggering. This prevents
+// spurious alerts from transient issues and reduces alert fatigue by filtering short-lived events.
 package alertmanager
 
 import (
@@ -31,15 +35,19 @@ type AlertEvent struct {
 
 // AlertAnalysis contains the analysis results for an alert
 type AlertAnalysis struct {
-	AlertName      string
-	FiringCount    int
-	AvgDuration    time.Duration
-	MedianDuration time.Duration
-	MinDuration    time.Duration
-	MaxDuration    time.Duration
-	RecommendedFor time.Duration
-	SpuriousAlerts int
-	Reasoning      string
+	AlertName        string
+	FiringCount      int
+	AvgDuration      time.Duration
+	MedianDuration   time.Duration
+	P75Duration      time.Duration // 75th percentile
+	P90Duration      time.Duration // 90th percentile
+	MinDuration      time.Duration
+	MaxDuration      time.Duration
+	RecommendedFor   time.Duration
+	SpuriousAlerts   int
+	PreventedAlerts  int // Number of alerts that would have been prevented
+	Reasoning        string
+	TargetPercentile float64 // Percentile used for recommendation (0-1)
 }
 
 // PrometheusResponse represents the Prometheus API response
@@ -159,9 +167,15 @@ func (a *HysteresisAnalyzer) FetchAlertHistory(timeframe time.Duration, alertNam
 
 // AnalyzeAlert analyzes alert firing patterns and recommends a 'for' duration
 func (a *HysteresisAnalyzer) AnalyzeAlert(alertName string, events []AlertEvent) AlertAnalysis {
+	return a.AnalyzeAlertWithPercentile(alertName, events, 0.3)
+}
+
+// AnalyzeAlertWithPercentile analyzes alert firing patterns with a configurable target percentile
+func (a *HysteresisAnalyzer) AnalyzeAlertWithPercentile(alertName string, events []AlertEvent, targetPercentile float64) AlertAnalysis {
 	analysis := AlertAnalysis{
-		AlertName:   alertName,
-		FiringCount: len(events),
+		AlertName:        alertName,
+		FiringCount:      len(events),
+		TargetPercentile: targetPercentile,
 	}
 
 	if len(events) == 0 {
@@ -186,11 +200,12 @@ func (a *HysteresisAnalyzer) AnalyzeAlert(alertName string, events []AlertEvent)
 
 	analysis.AvgDuration = totalDuration / time.Duration(len(events))
 
-	// Calculate median
+	// Sort durations for percentile calculations
 	sort.Slice(durations, func(i, j int) bool {
 		return durations[i] < durations[j]
 	})
 
+	// Calculate median (50th percentile)
 	if len(durations)%2 == 0 {
 		mid := len(durations) / 2
 		analysis.MedianDuration = (durations[mid-1] + durations[mid]) / 2
@@ -198,16 +213,30 @@ func (a *HysteresisAnalyzer) AnalyzeAlert(alertName string, events []AlertEvent)
 		analysis.MedianDuration = durations[len(durations)/2]
 	}
 
-	// Recommend 'for' duration based on analysis
-	// Strategy: Use a percentile approach to filter out spurious short-lived alerts
-	// Recommend the duration that would filter out the shortest 30% of alerts
+	// Calculate 75th percentile
+	p75Index := int(float64(len(durations)) * 0.75)
+	if p75Index >= len(durations) {
+		p75Index = len(durations) - 1
+	}
+	analysis.P75Duration = durations[p75Index]
 
-	percentile30 := int(float64(len(durations)) * 0.3)
-	if percentile30 >= len(durations) {
-		percentile30 = len(durations) - 1
+	// Calculate 90th percentile
+	p90Index := int(float64(len(durations)) * 0.90)
+	if p90Index >= len(durations) {
+		p90Index = len(durations) - 1
+	}
+	analysis.P90Duration = durations[p90Index]
+
+	// Recommend 'for' duration based on target percentile
+	// Strategy: Use a percentile approach to balance alert sensitivity vs. robustness
+	// - Lower percentiles (e.g., 0.2): More sensitive, may catch transient issues
+	// - Higher percentiles (e.g., 0.5-0.7): More robust, ignores transient issues
+	targetIndex := int(float64(len(durations)) * targetPercentile)
+	if targetIndex >= len(durations) {
+		targetIndex = len(durations) - 1
 	}
 
-	recommended := durations[percentile30]
+	recommended := durations[targetIndex]
 
 	// Round to sensible values (30s, 1m, 2m, 5m, 10m, 15m, 30m, 1h)
 	recommended = roundToSensibleDuration(recommended)
@@ -215,23 +244,42 @@ func (a *HysteresisAnalyzer) AnalyzeAlert(alertName string, events []AlertEvent)
 	analysis.RecommendedFor = recommended
 
 	// Count spurious alerts (those shorter than recommended)
+	// This represents alerts that would have been prevented
 	for _, d := range durations {
 		if d < recommended {
 			analysis.SpuriousAlerts++
+			analysis.PreventedAlerts++
 		}
 	}
 
-	// Generate reasoning
+	// Generate reasoning with context about sensitivity
 	if analysis.SpuriousAlerts > 0 {
 		percentage := float64(analysis.SpuriousAlerts) / float64(len(events)) * 100
+		sensitivityNote := getSensitivityNote(targetPercentile)
 		analysis.Reasoning = fmt.Sprintf(
-			"%.1f%% of alerts (%d/%d) fire for less than %s, suggesting spurious alerts",
-			percentage, analysis.SpuriousAlerts, len(events), recommended.Round(time.Second))
+			"%.1f%% of alerts (%d/%d) fire for less than %s (%s)",
+			percentage, analysis.SpuriousAlerts, len(events), recommended.Round(time.Second), sensitivityNote)
 	} else {
 		analysis.Reasoning = "All alerts fire for longer than the recommended duration"
 	}
 
 	return analysis
+}
+
+// getSensitivityNote returns a description of the sensitivity level based on target percentile
+func getSensitivityNote(percentile float64) string {
+	switch {
+	case percentile < 0.25:
+		return "very sensitive, may catch transient issues"
+	case percentile < 0.4:
+		return "more sensitive, may catch transient issues"
+	case percentile < 0.6:
+		return "balanced sensitivity"
+	case percentile < 0.75:
+		return "more robust, ignores transient issues"
+	default:
+		return "very robust, ignores transient issues"
+	}
 }
 
 // roundToSensibleDuration rounds a duration to sensible alert 'for' values
@@ -305,4 +353,60 @@ func LoadAlertDurations(filename string) (map[string]time.Duration, error) {
 	}
 
 	return durations, nil
+}
+
+// UpdateAlertDurations updates 'for' durations in a Prometheus rules file
+func UpdateAlertDurations(filename string, recommendations map[string]time.Duration) error {
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("failed to read file: %w", err)
+	}
+
+	var rules PrometheusRules
+	if err := yaml.Unmarshal(content, &rules); err != nil {
+		return fmt.Errorf("failed to parse YAML: %w", err)
+	}
+
+	// Update durations for alerts with recommendations
+	for gi, group := range rules.Groups {
+		for ri, rule := range group.Rules {
+			if rule.Alert != "" {
+				if newDuration, ok := recommendations[rule.Alert]; ok {
+					// Format duration in Prometheus style (e.g., "5m", "2h")
+					rules.Groups[gi].Rules[ri].For = formatPrometheusDuration(newDuration)
+				}
+			}
+		}
+	}
+
+	// Write updated rules back to file
+	output, err := yaml.Marshal(&rules)
+	if err != nil {
+		return fmt.Errorf("failed to marshal YAML: %w", err)
+	}
+
+	if err := os.WriteFile(filename, output, 0644); err != nil {
+		return fmt.Errorf("failed to write file: %w", err)
+	}
+
+	return nil
+}
+
+// formatPrometheusDuration formats a duration in Prometheus-style (e.g., "5m", "2h")
+func formatPrometheusDuration(d time.Duration) string {
+	if d == 0 {
+		return "0s"
+	}
+
+	// Try to express in the largest unit possible
+	if d%(24*time.Hour) == 0 {
+		return fmt.Sprintf("%dd", d/(24*time.Hour))
+	}
+	if d%time.Hour == 0 {
+		return fmt.Sprintf("%dh", d/time.Hour)
+	}
+	if d%time.Minute == 0 {
+		return fmt.Sprintf("%dm", d/time.Minute)
+	}
+	return fmt.Sprintf("%ds", d/time.Second)
 }
