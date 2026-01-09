@@ -591,3 +591,145 @@ func TestAggregationConsistency(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckRedundantAggregations(t *testing.T) {
+	tests := []struct {
+		name        string
+		expr        string
+		expectIssue bool
+	}{
+		{
+			name:        "redundant by clause on both sides",
+			expr:        "sum(rate(http_requests_total{job=\"api\",status=~\"5..\"}[5m])) by (instance) / sum(rate(http_requests_total{job=\"api\"}[5m])) by (instance)",
+			expectIssue: true,
+		},
+		{
+			name:        "aggregation only on right side (correct)",
+			expr:        "sum(rate(http_requests_total{job=\"api\",status=~\"5..\"}[5m])) / sum(rate(http_requests_total{job=\"api\"}[5m])) by (instance)",
+			expectIssue: false,
+		},
+		{
+			name:        "different aggregation clauses",
+			expr:        "sum(metric1) by (pod) / sum(metric2) by (instance)",
+			expectIssue: false,
+		},
+		{
+			name:        "no aggregation clauses",
+			expr:        "sum(metric1) / sum(metric2)",
+			expectIssue: false,
+		},
+		{
+			name:        "aggregation only on left side",
+			expr:        "sum(metric1) by (instance) / sum(metric2)",
+			expectIssue: false,
+		},
+		{
+			name:        "redundant without clause",
+			expr:        "sum(metric1) without (pod) / sum(metric2) without (pod)",
+			expectIssue: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issues := checkRedundantAggregations(tt.expr)
+
+			if tt.expectIssue && len(issues) == 0 {
+				t.Errorf("Expected issue but got none")
+			}
+			if !tt.expectIssue && len(issues) > 0 {
+				t.Errorf("Expected no issues but got: %v", issues)
+			}
+		})
+	}
+}
+
+func TestExtractTrailingAggregation(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     string
+		expected string
+	}{
+		{
+			name:     "by clause at end",
+			expr:     "sum(rate(metric[5m])) by (instance)",
+			expected: ") by (instance)",
+		},
+		{
+			name:     "without clause at end",
+			expr:     "avg(metric) without (pod)",
+			expected: ") without (pod)",
+		},
+		{
+			name:     "by clause with multiple labels",
+			expr:     "sum(metric) by (instance, job)",
+			expected: ") by (instance, job)",
+		},
+		{
+			name:     "no aggregation clause",
+			expr:     "sum(metric)",
+			expected: "",
+		},
+		{
+			name:     "aggregation in middle, not at end",
+			expr:     "sum(metric) by (job) > 0.5",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractTrailingAggregation(tt.expr)
+			if result != tt.expected {
+				t.Errorf("extractTrailingAggregation(%q) = %q, want %q", tt.expr, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCheckAggregationPlacement(t *testing.T) {
+	tests := []struct {
+		name        string
+		expr        string
+		expectIssue bool
+	}{
+		{
+			name:        "aggregation on final operand only (correct)",
+			expr:        "sum(metric1) / sum(metric2) by (instance)",
+			expectIssue: false,
+		},
+		{
+			name:        "aggregation on non-final operand",
+			expr:        "sum(metric1) by (instance) / sum(metric2)",
+			expectIssue: true,
+		},
+		{
+			name:        "both operands have same aggregation (caught by redundant check)",
+			expr:        "sum(metric1) by (instance) / sum(metric2) by (instance)",
+			expectIssue: true,
+		},
+		{
+			name:        "no aggregations",
+			expr:        "sum(metric1) / sum(metric2)",
+			expectIssue: false,
+		},
+		{
+			name:        "complex expression with comparison",
+			expr:        "sum(metric1) by (instance) / sum(metric2) > 0.5",
+			expectIssue: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issues := checkAggregationPlacement(tt.expr)
+
+			if tt.expectIssue && len(issues) == 0 {
+				t.Errorf("Expected issue but got none")
+			}
+			if !tt.expectIssue && len(issues) > 0 {
+				t.Errorf("Expected no issues but got: %v", issues)
+			}
+		})
+	}
+}

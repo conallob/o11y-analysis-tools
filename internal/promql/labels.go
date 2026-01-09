@@ -15,6 +15,13 @@ type LabelViolation struct {
 	Suggestion    string
 }
 
+// AlertViolation represents an alert that's missing required labels
+type AlertViolation struct {
+	AlertName     string
+	MissingLabels []string
+	Line          int
+}
+
 // CheckRequiredLabels checks PromQL expressions for required labels
 func CheckRequiredLabels(content string, requiredLabels []string) []LabelViolation {
 	var violations []LabelViolation
@@ -165,4 +172,104 @@ func generateSuggestion(expr string, missingLabels []string) string {
 	}
 
 	return "Add label matcher: " + match + "{" + strings.Join(labels, ", ") + "}"
+}
+
+// CheckAlertLabels checks that alerts have required labels in their labels section
+func CheckAlertLabels(content string, requiredLabels []string) []AlertViolation {
+	var violations []AlertViolation
+
+	// Parse YAML to find alert definitions
+	lines := strings.Split(content, "\n")
+
+	var currentAlert string
+	var currentAlertLine int
+	var alertLabels []string
+	inLabelsSection := false
+	labelsIndent := 0
+
+	for lineNum, line := range lines {
+		// Check for alert definition
+		alertMatch := regexp.MustCompile(`^\s*-\s*alert:\s*(\S+)`).FindStringSubmatch(line)
+		if len(alertMatch) > 1 {
+			// If we were processing a previous alert, check it
+			if currentAlert != "" {
+				missing := checkAlertLabels(alertLabels, requiredLabels)
+				if len(missing) > 0 {
+					violations = append(violations, AlertViolation{
+						AlertName:     currentAlert,
+						MissingLabels: missing,
+						Line:          currentAlertLine,
+					})
+				}
+			}
+
+			// Start new alert
+			currentAlert = alertMatch[1]
+			currentAlertLine = lineNum + 1
+			alertLabels = nil
+			inLabelsSection = false
+			continue
+		}
+
+		// Check for labels section
+		if currentAlert != "" {
+			indent := len(line) - len(strings.TrimLeft(line, " \t"))
+
+			// Check if we're entering the labels section
+			if regexp.MustCompile(`^\s*labels:\s*$`).MatchString(line) {
+				inLabelsSection = true
+				labelsIndent = indent
+				continue
+			}
+
+			// If we're in the labels section, collect label names
+			if inLabelsSection {
+				// Check if we've left the labels section (indent decreased or new section started)
+				if indent <= labelsIndent || regexp.MustCompile(`^\s*\w+:\s*`).MatchString(line) && indent == labelsIndent {
+					inLabelsSection = false
+				} else {
+					// Extract label name
+					labelMatch := regexp.MustCompile(`^\s*(\w+):\s*`).FindStringSubmatch(line)
+					if len(labelMatch) > 1 {
+						alertLabels = append(alertLabels, labelMatch[1])
+					}
+				}
+			}
+		}
+	}
+
+	// Check the last alert if any
+	if currentAlert != "" {
+		missing := checkAlertLabels(alertLabels, requiredLabels)
+		if len(missing) > 0 {
+			violations = append(violations, AlertViolation{
+				AlertName:     currentAlert,
+				MissingLabels: missing,
+				Line:          currentAlertLine,
+			})
+		}
+	}
+
+	return violations
+}
+
+// checkAlertLabels checks if an alert has all required labels
+func checkAlertLabels(alertLabels []string, requiredLabels []string) []string {
+	var missing []string
+
+	for _, required := range requiredLabels {
+		found := false
+		for _, present := range alertLabels {
+			if present == required {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			missing = append(missing, required)
+		}
+	}
+
+	return missing
 }

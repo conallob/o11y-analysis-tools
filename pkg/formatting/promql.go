@@ -88,6 +88,14 @@ func CheckAndFormatPromQL(content string, opts CheckOptions) ([]string, string) 
 			expression = strings.Trim(expression, "'")
 		}
 
+		// Check for redundant aggregation clauses
+		redundantIssues := checkRedundantAggregations(expression)
+		issues = append(issues, redundantIssues...)
+
+		// Check for aggregation placement
+		placementIssues := checkAggregationPlacement(expression)
+		issues = append(issues, placementIssues...)
+
 		// Check if expression should be multiline
 		if shouldBeMultiline(expression, opts.DisableLineLength) {
 			issues = append(issues, fmt.Sprintf("Expression should use multiline formatting: %.60s...", expression))
@@ -526,6 +534,134 @@ func checkInstrumentationPatterns(expr string) []string {
 	if strings.Contains(expr, " / ") && !strings.Contains(expr, " or ") {
 		if !strings.Contains(expr, "!= 0") {
 			issues = append(issues, "Division detected without zero-protection - consider adding '... or 1' or checking for non-zero denominator")
+		}
+	}
+
+	return issues
+}
+
+// checkRedundantAggregations detects redundant aggregation clauses in binary operations
+func checkRedundantAggregations(expr string) []string {
+	var issues []string
+
+	// Look for binary operations (/, *, +, -, etc.) where both sides have the same aggregation clause
+	// Example: sum(...) by (instance) / sum(...) by (instance)
+	// This should be: sum(...) / sum(...) by (instance)
+
+	// Find binary operators between aggregations
+	binaryOps := []string{" / ", " * ", " + ", " - ", " % ", " ^ "}
+
+	for _, op := range binaryOps {
+		if !strings.Contains(expr, op) {
+			continue
+		}
+
+		// Split by the operator
+		parts := strings.Split(expr, op)
+		if len(parts) != 2 {
+			continue
+		}
+
+		left := strings.TrimSpace(parts[0])
+		right := strings.TrimSpace(parts[1])
+
+		// Extract aggregation clause from left side (looking for trailing by/without)
+		leftAggClause := extractTrailingAggregation(left)
+		if leftAggClause == "" {
+			continue
+		}
+
+		// Extract aggregation clause from right side (looking for trailing by/without)
+		rightAggClause := extractTrailingAggregation(right)
+		if rightAggClause == "" {
+			continue
+		}
+
+		// If both sides have the same aggregation clause, it's redundant on the left
+		if leftAggClause == rightAggClause {
+			issues = append(issues, fmt.Sprintf("Redundant aggregation clause '%s' on left side of '%s' - only specify on the final operand", leftAggClause, op))
+		}
+	}
+
+	return issues
+}
+
+// extractTrailingAggregation extracts the trailing by/without clause from an expression
+func extractTrailingAggregation(expr string) string {
+	// Match patterns like: ) by (label1, label2) or ) without (label1)
+	aggRegex := regexp.MustCompile(`\)\s+(by|without)\s*\([^)]+\)\s*$`)
+	match := aggRegex.FindString(expr)
+	if match != "" {
+		return strings.TrimSpace(match)
+	}
+	return ""
+}
+
+// checkAggregationPlacement checks that aggregation clauses are on the final operand only
+func checkAggregationPlacement(expr string) []string {
+	var issues []string
+
+	// Look for aggregation clauses on non-final operands in binary expressions
+	// Example: sum(...) by (instance) / sum(...)
+	// This is acceptable only if the right side also has an aggregation
+
+	binaryOps := []string{" / ", " * ", " + ", " - ", " % ", " ^ "}
+
+	for _, op := range binaryOps {
+		if !strings.Contains(expr, op) {
+			continue
+		}
+
+		// Check if there's a comparison operator after this binary op
+		// If so, the final operand is after the comparison
+		hasComparison := false
+		for _, compOp := range []string{" > ", " < ", " >= ", " <= ", " == ", " != "} {
+			if strings.Contains(expr, compOp) {
+				hasComparison = true
+				break
+			}
+		}
+
+		// Split by the operator
+		parts := strings.Split(expr, op)
+		if len(parts) < 2 {
+			continue
+		}
+
+		// Check all parts except the last one for aggregation clauses
+		for i := 0; i < len(parts)-1; i++ {
+			part := strings.TrimSpace(parts[i])
+			aggClause := extractTrailingAggregation(part)
+
+			// If we found an aggregation on a non-final part, check if it's redundant
+			if aggClause != "" {
+				// Get the next part to see if it also has an aggregation
+				var nextPart string
+				if i+1 < len(parts) {
+					nextPart = strings.TrimSpace(parts[i+1])
+					// If there's a comparison operator, split by that too
+					if hasComparison {
+						for _, compOp := range []string{" > ", " < ", " >= ", " <= ", " == ", " != "} {
+							if strings.Contains(nextPart, compOp) {
+								compParts := strings.Split(nextPart, compOp)
+								if len(compParts) > 0 {
+									nextPart = strings.TrimSpace(compParts[0])
+								}
+								break
+							}
+						}
+					}
+				}
+
+				nextAggClause := extractTrailingAggregation(nextPart)
+
+				// If the next part has the same aggregation or no aggregation at all,
+				// the current one is likely redundant or misplaced
+				if nextAggClause == "" || nextAggClause == aggClause {
+					issues = append(issues, fmt.Sprintf("Aggregation clause '%s' should only appear on the final operand, not intermediate operands", aggClause))
+					break
+				}
+			}
 		}
 	}
 
