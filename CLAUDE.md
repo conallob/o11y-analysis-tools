@@ -21,6 +21,18 @@ The repository uses standard Go project structure, GitHub Actions for CI/CD, and
 - Pull requests should target `main` branch
 - Releases are automated via git tags matching `v*` pattern
 
+* When creating Pull Requests, include the primary prompts as multiline markdown code blocks in the PR description
+  - This provides context for reviewers about the original intent and scope
+  - Format prompts using markdown code fences (triple backticks)
+  - Example format in PR description:
+    ```
+    ## Original Prompt
+
+    ```
+    Create a new branch to update @dot_claude/CLAUDE.md to use subagents...
+    ```
+    ```
+
 ## Key Architecture Patterns
 
 ### Go Module Structure
