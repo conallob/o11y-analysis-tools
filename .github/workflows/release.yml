@@ -37,9 +37,17 @@ jobs:
           podman version
           podman info
 
+      - name: Set up Docker Buildx with Podman driver
+        run: |
+          # Create a buildx builder that uses Podman
+          docker buildx create --name podman-builder --driver docker-container --driver-opt image=moby/buildkit:latest --use
+          docker buildx inspect --bootstrap
+
       - name: Login to GitHub Container Registry
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+          # Also login via docker for buildx
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
 
       # Per https://goreleaser.com/ci/actions/#workflow
       - name: Run GoReleaser
