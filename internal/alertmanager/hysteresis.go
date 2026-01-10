@@ -410,3 +410,159 @@ func formatPrometheusDuration(d time.Duration) string {
 	}
 	return fmt.Sprintf("%ds", d/time.Second)
 }
+
+// GetAlertNamesFromRules extracts all alert names from a Prometheus rules file
+func GetAlertNamesFromRules(filename string) ([]string, error) {
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	var rules PrometheusRules
+	if err := yaml.Unmarshal(content, &rules); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML: %w", err)
+	}
+
+	var alertNames []string
+	seen := make(map[string]bool)
+
+	for _, group := range rules.Groups {
+		for _, rule := range group.Rules {
+			if rule.Alert != "" && !seen[rule.Alert] {
+				alertNames = append(alertNames, rule.Alert)
+				seen[rule.Alert] = true
+			}
+		}
+	}
+
+	return alertNames, nil
+}
+
+// FindLastFiredTimes queries Prometheus to find when each alert last fired
+// Returns a map of alert name to last fired time (zero time if never fired)
+// lookbackPeriod specifies how far back to search (e.g., 365 days for 1 year)
+func FindLastFiredTimes(prometheusURL string, alertNames []string, lookbackPeriod time.Duration, verbose bool) (map[string]time.Time, error) {
+	lastFired := make(map[string]time.Time)
+
+	// Initialize all alerts with zero time (never fired)
+	for _, name := range alertNames {
+		lastFired[name] = time.Time{}
+	}
+
+	// Build query for all alerts at once
+	query := "ALERTS"
+
+	endTime := time.Now()
+	startTime := endTime.Add(-lookbackPeriod)
+
+	params := url.Values{}
+	params.Add("query", query)
+	params.Add("start", fmt.Sprintf("%d", startTime.Unix()))
+	params.Add("end", fmt.Sprintf("%d", endTime.Unix()))
+	params.Add("step", "3600s") // 1 hour resolution to reduce data volume
+
+	queryURL := fmt.Sprintf("%s/api/v1/query_range?%s", prometheusURL, params.Encode())
+
+	if verbose {
+		fmt.Printf("Querying Prometheus for alert history (lookback: %s)...\n", lookbackPeriod)
+	}
+
+	resp, err := http.Get(queryURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query Prometheus: %w", err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			if err == nil {
+				err = closeErr
+			}
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("prometheus returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var promResp PrometheusResponse
+	if err := json.NewDecoder(resp.Body).Decode(&promResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Process results to find last firing time for each alert
+	for _, result := range promResp.Data.Result {
+		alertName := result.Metric["alertname"]
+		if alertName == "" {
+			continue
+		}
+
+		// Find the last timestamp where the alert was firing (value = "1")
+		var lastFiringTime time.Time
+		for i := len(result.Values) - 1; i >= 0; i-- {
+			value := result.Values[i]
+			timestamp := int64(value[0].(float64))
+			valueStr := value[1].(string)
+
+			if valueStr == "1" {
+				lastFiringTime = time.Unix(timestamp, 0)
+				break
+			}
+		}
+
+		// Update last fired time for this alert
+		if !lastFiringTime.IsZero() {
+			if existing, ok := lastFired[alertName]; !ok || lastFiringTime.After(existing) {
+				lastFired[alertName] = lastFiringTime
+			}
+		}
+	}
+
+	return lastFired, nil
+}
+
+// DeleteAlertsFromRules removes specified alerts from a Prometheus rules file
+func DeleteAlertsFromRules(filename string, alertsToDelete []string) error {
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("failed to read file: %w", err)
+	}
+
+	var rules PrometheusRules
+	if err := yaml.Unmarshal(content, &rules); err != nil {
+		return fmt.Errorf("failed to parse YAML: %w", err)
+	}
+
+	// Create a set for faster lookup
+	deleteSet := make(map[string]bool)
+	for _, name := range alertsToDelete {
+		deleteSet[name] = true
+	}
+
+	// Remove alerts from each group
+	for gi := range rules.Groups {
+		var filteredRules []struct {
+			Alert string `yaml:"alert"`
+			For   string `yaml:"for"`
+		}
+
+		for _, rule := range rules.Groups[gi].Rules {
+			if !deleteSet[rule.Alert] {
+				filteredRules = append(filteredRules, rule)
+			}
+		}
+
+		rules.Groups[gi].Rules = filteredRules
+	}
+
+	// Write updated rules back to file
+	output, err := yaml.Marshal(&rules)
+	if err != nil {
+		return fmt.Errorf("failed to marshal YAML: %w", err)
+	}
+
+	if err := os.WriteFile(filename, output, 0644); err != nil {
+		return fmt.Errorf("failed to write file: %w", err)
+	}
+
+	return nil
+}
