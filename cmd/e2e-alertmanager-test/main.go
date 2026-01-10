@@ -79,7 +79,17 @@ type EmailOutput struct {
 	Subject     string
 	Headers     map[string]string
 	Body        string
+	HTMLBody    string
 	RoutingInfo string
+}
+
+// NotificationOutput represents a rendered notification
+type NotificationOutput struct {
+	Type        string // email, slack, webhook
+	Email       *EmailOutput
+	SlackBody   string
+	WebhookBody string
+	RawJSON     string
 }
 
 func main() {
@@ -87,24 +97,33 @@ func main() {
 		testFile         = flag.String("tests", "", "path to Prometheus test file (required)")
 		alertmanagerURL  = flag.String("alertmanager-url", "http://localhost:9093", "Alertmanager API URL")
 		alertmanagerConf = flag.String("alertmanager-config", "", "path to alertmanager config file")
-		outputFormat     = flag.String("output", "email", "output format: email, json")
+		outputFormat     = flag.String("output", "email", "output format: email, email-html, slack, json, full")
+		renderFull       = flag.Bool("full", false, "render full notification body (includes HTML)")
 		verbose          = flag.Bool("verbose", false, "verbose output")
 	)
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: e2e-alertmanager-test [options]\n\n")
 		fmt.Fprintf(os.Stderr, "Run end-to-end tests of alert routing through Alertmanager.\n")
-		fmt.Fprintf(os.Stderr, "Reads Prometheus test files and sends firing alerts to Alertmanager,\n")
-		fmt.Fprintf(os.Stderr, "then formats the output as SMTP email headers and body.\n\n")
+		fmt.Fprintf(os.Stderr, "Renders complete notification bodies for UX development and testing.\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nOutput Formats:\n")
+		fmt.Fprintf(os.Stderr, "  email      - Plain text email with RFC 2076 headers\n")
+		fmt.Fprintf(os.Stderr, "  email-html - HTML email rendering\n")
+		fmt.Fprintf(os.Stderr, "  slack      - Slack message format\n")
+		fmt.Fprintf(os.Stderr, "  json       - JSON output\n")
+		fmt.Fprintf(os.Stderr, "  full       - All notification formats\n")
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
-		fmt.Fprintf(os.Stderr, "  # Test alert routing\n")
+		fmt.Fprintf(os.Stderr, "  # Test alert routing with full HTML email rendering\n")
 		fmt.Fprintf(os.Stderr, "  e2e-alertmanager-test --tests=./alerts_test.yml \\\n")
-		fmt.Fprintf(os.Stderr, "                         --alertmanager-url=http://localhost:9093\n\n")
-		fmt.Fprintf(os.Stderr, "  # Test with custom alertmanager config\n")
+		fmt.Fprintf(os.Stderr, "                         --output=email-html --full\n\n")
+		fmt.Fprintf(os.Stderr, "  # Generate all notification formats for UX diffing\n")
 		fmt.Fprintf(os.Stderr, "  e2e-alertmanager-test --tests=./alerts_test.yml \\\n")
-		fmt.Fprintf(os.Stderr, "                         --alertmanager-config=./alertmanager.yml\n")
+		fmt.Fprintf(os.Stderr, "                         --output=full > notifications.txt\n\n")
+		fmt.Fprintf(os.Stderr, "  # Slack notification preview\n")
+		fmt.Fprintf(os.Stderr, "  e2e-alertmanager-test --tests=./alerts_test.yml \\\n")
+		fmt.Fprintf(os.Stderr, "                         --output=slack\n")
 	}
 
 	flag.Parse()
@@ -194,14 +213,20 @@ func main() {
 
 				successfulTests++
 
-				// Format as email
-				email := formatAsEmail(alert, amConfig)
+				// Format notification in all supported formats
+				notification := formatNotification(alert, amConfig, *renderFull)
 
 				switch *outputFormat {
 				case "email":
-					printEmailOutput(email, testIdx+1)
+					printEmailOutput(notification.Email, testIdx+1, false)
+				case "email-html":
+					printEmailOutput(notification.Email, testIdx+1, true)
+				case "slack":
+					printSlackOutput(notification, testIdx+1)
 				case "json":
-					printJSONOutput(alert, email)
+					printJSONOutput(alert, notification)
+				case "full":
+					printFullOutput(notification, testIdx+1)
 				default:
 					fmt.Printf("  ✓ Alert sent successfully\n")
 				}
@@ -287,7 +312,27 @@ func sendAlertToAlertmanager(alertmanagerURL string, alert AlertmanagerAlert) er
 	return nil
 }
 
-func formatAsEmail(alert AlertmanagerAlert, config *AlertmanagerConfig) EmailOutput {
+func formatNotification(alert AlertmanagerAlert, config *AlertmanagerConfig, renderFull bool) NotificationOutput {
+	notification := NotificationOutput{
+		Type: "email",
+	}
+
+	// Generate email notification
+	email := formatAsEmail(alert, config, renderFull)
+	notification.Email = &email
+
+	// Generate Slack notification
+	notification.SlackBody = formatAsSlack(alert)
+
+	// Generate webhook/JSON
+	jsonData, _ := json.MarshalIndent(alert, "", "  ")
+	notification.WebhookBody = string(jsonData)
+	notification.RawJSON = string(jsonData)
+
+	return notification
+}
+
+func formatAsEmail(alert AlertmanagerAlert, config *AlertmanagerConfig, renderHTML bool) EmailOutput {
 	email := EmailOutput{
 		Headers: make(map[string]string),
 	}
@@ -312,7 +357,11 @@ func formatAsEmail(alert AlertmanagerAlert, config *AlertmanagerConfig) EmailOut
 
 	// RFC 2076 compliant headers
 	email.Headers["MIME-Version"] = "1.0"
-	email.Headers["Content-Type"] = "text/plain; charset=utf-8"
+	if renderHTML {
+		email.Headers["Content-Type"] = "multipart/alternative; boundary=\"alertmanager-boundary\""
+	} else {
+		email.Headers["Content-Type"] = "text/plain; charset=utf-8"
+	}
 	email.Headers["Date"] = time.Now().Format(time.RFC1123Z)
 	email.Headers["Message-ID"] = fmt.Sprintf("<%s-%d@alertmanager>", alertname, time.Now().Unix())
 	email.Headers["X-Alertmanager-Alert"] = alertname
@@ -320,7 +369,7 @@ func formatAsEmail(alert AlertmanagerAlert, config *AlertmanagerConfig) EmailOut
 		email.Headers["X-Alert-Severity"] = severity
 	}
 
-	// Build email body
+	// Build plain text email body
 	var body strings.Builder
 	body.WriteString(fmt.Sprintf("Alert: %s\n", alertname))
 	body.WriteString(fmt.Sprintf("Severity: %s\n", severity))
@@ -353,10 +402,156 @@ func formatAsEmail(alert AlertmanagerAlert, config *AlertmanagerConfig) EmailOut
 
 	email.Body = body.String()
 
+	// Generate HTML body if requested
+	if renderHTML {
+		email.HTMLBody = formatEmailHTML(alert, severity, alertname)
+	}
+
 	return email
 }
 
-func printEmailOutput(email EmailOutput, testNum int) {
+func formatEmailHTML(alert AlertmanagerAlert, severity, alertname string) string {
+	var html strings.Builder
+
+	// Severity color mapping
+	severityColor := map[string]string{
+		"critical": "#d32f2f",
+		"warning":  "#f57c00",
+		"info":     "#1976d2",
+	}
+	color := severityColor[severity]
+	if color == "" {
+		color = "#757575"
+	}
+
+	html.WriteString("<!DOCTYPE html>\n")
+	html.WriteString("<html>\n<head>\n")
+	html.WriteString("<meta charset=\"utf-8\">\n")
+	html.WriteString("<style>\n")
+	html.WriteString("body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }\n")
+	html.WriteString(".container { max-width: 600px; margin: 0 auto; padding: 20px; }\n")
+	html.WriteString(".header { background: " + color + "; color: white; padding: 20px; border-radius: 4px 4px 0 0; }\n")
+	html.WriteString(".header h1 { margin: 0; font-size: 24px; }\n")
+	html.WriteString(".severity-badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: bold; text-transform: uppercase; }\n")
+	html.WriteString(".content { background: #f5f5f5; padding: 20px; border-radius: 0 0 4px 4px; }\n")
+	html.WriteString(".section { background: white; padding: 15px; margin-bottom: 15px; border-radius: 4px; border-left: 4px solid " + color + "; }\n")
+	html.WriteString(".section h2 { margin-top: 0; font-size: 16px; color: #555; }\n")
+	html.WriteString(".label-item, .annotation-item { padding: 8px 0; border-bottom: 1px solid #e0e0e0; }\n")
+	html.WriteString(".label-key, .annotation-key { font-weight: 600; color: #666; }\n")
+	html.WriteString(".label-value, .annotation-value { color: #333; margin-left: 10px; }\n")
+	html.WriteString(".timestamp { color: #757575; font-size: 14px; }\n")
+	html.WriteString("</style>\n</head>\n<body>\n")
+
+	html.WriteString("<div class=\"container\">\n")
+	html.WriteString("  <div class=\"header\">\n")
+	html.WriteString(fmt.Sprintf("    <span class=\"severity-badge\" style=\"background: rgba(255,255,255,0.3);\">%s</span>\n", strings.ToUpper(severity)))
+	html.WriteString(fmt.Sprintf("    <h1>%s</h1>\n", alertname))
+	html.WriteString(fmt.Sprintf("    <p class=\"timestamp\">%s</p>\n", alert.StartsAt.Format("Monday, January 2, 2006 at 3:04 PM MST")))
+	html.WriteString("  </div>\n")
+
+	html.WriteString("  <div class=\"content\">\n")
+
+	// Annotations section
+	if len(alert.Annotations) > 0 {
+		html.WriteString("    <div class=\"section\">\n")
+		html.WriteString("      <h2>Details</h2>\n")
+		for k, v := range alert.Annotations {
+			html.WriteString("      <div class=\"annotation-item\">\n")
+			html.WriteString(fmt.Sprintf("        <span class=\"annotation-key\">%s:</span>\n", k))
+			html.WriteString(fmt.Sprintf("        <span class=\"annotation-value\">%s</span>\n", v))
+			html.WriteString("      </div>\n")
+		}
+		html.WriteString("    </div>\n")
+	}
+
+	// Labels section
+	html.WriteString("    <div class=\"section\">\n")
+	html.WriteString("      <h2>Labels</h2>\n")
+	for k, v := range alert.Labels {
+		if k != "alertname" && k != "severity" {
+			html.WriteString("      <div class=\"label-item\">\n")
+			html.WriteString(fmt.Sprintf("        <span class=\"label-key\">%s:</span>\n", k))
+			html.WriteString(fmt.Sprintf("        <span class=\"label-value\">%s</span>\n", v))
+			html.WriteString("      </div>\n")
+		}
+	}
+	html.WriteString("    </div>\n")
+
+	html.WriteString("  </div>\n")
+	html.WriteString("</div>\n")
+	html.WriteString("</body>\n</html>")
+
+	return html.String()
+}
+
+func formatAsSlack(alert AlertmanagerAlert) string {
+	alertname := alert.Labels["alertname"]
+	severity := alert.Labels["severity"]
+	if severity == "" {
+		severity = "warning"
+	}
+
+	// Slack color mapping
+	colorMap := map[string]string{
+		"critical": "danger",
+		"warning":  "warning",
+		"info":     "good",
+	}
+	color := colorMap[severity]
+	if color == "" {
+		color = "#808080"
+	}
+
+	var slack strings.Builder
+	slack.WriteString("{\n")
+	slack.WriteString("  \"attachments\": [\n")
+	slack.WriteString("    {\n")
+	slack.WriteString(fmt.Sprintf("      \"color\": \"%s\",\n", color))
+	slack.WriteString(fmt.Sprintf("      \"title\": \"[%s] %s\",\n", strings.ToUpper(severity), alertname))
+	slack.WriteString(fmt.Sprintf("      \"title_link\": \"%s\",\n", alert.GeneratorURL))
+	slack.WriteString(fmt.Sprintf("      \"ts\": %d,\n", alert.StartsAt.Unix()))
+	slack.WriteString("      \"fields\": [\n")
+
+	// Add annotations as fields
+	first := true
+	for k, v := range alert.Annotations {
+		if !first {
+			slack.WriteString(",\n")
+		}
+		slack.WriteString("        {\n")
+		slack.WriteString(fmt.Sprintf("          \"title\": \"%s\",\n", k))
+		slack.WriteString(fmt.Sprintf("          \"value\": \"%s\",\n", v))
+		slack.WriteString("          \"short\": false\n")
+		slack.WriteString("        }")
+		first = false
+	}
+
+	// Add key labels as fields
+	for k, v := range alert.Labels {
+		if k != "alertname" && k != "severity" {
+			if !first {
+				slack.WriteString(",\n")
+			}
+			slack.WriteString("        {\n")
+			slack.WriteString(fmt.Sprintf("          \"title\": \"%s\",\n", k))
+			slack.WriteString(fmt.Sprintf("          \"value\": \"%s\",\n", v))
+			slack.WriteString("          \"short\": true\n")
+			slack.WriteString("        }")
+			first = false
+		}
+	}
+
+	slack.WriteString("\n      ],\n")
+	slack.WriteString("      \"footer\": \"Alertmanager\",\n")
+	slack.WriteString("      \"footer_icon\": \"https://avatars3.githubusercontent.com/u/3380462\"\n")
+	slack.WriteString("    }\n")
+	slack.WriteString("  ]\n")
+	slack.WriteString("}")
+
+	return slack.String()
+}
+
+func printEmailOutput(email *EmailOutput, testNum int, renderHTML bool) {
 	fmt.Printf("  Email Output (Test #%d):\n", testNum)
 	fmt.Println("  " + strings.Repeat("─", 58))
 	fmt.Printf("  From: %s\n", email.From)
@@ -369,8 +564,21 @@ func printEmailOutput(email EmailOutput, testNum int) {
 	}
 
 	fmt.Println()
-	fmt.Println("  Message Body:")
-	fmt.Println("  " + strings.Repeat("─", 58))
+
+	if renderHTML && email.HTMLBody != "" {
+		fmt.Println("  HTML Body:")
+		fmt.Println("  " + strings.Repeat("─", 58))
+		htmlLines := strings.Split(email.HTMLBody, "\n")
+		for _, line := range htmlLines {
+			fmt.Printf("  %s\n", line)
+		}
+		fmt.Println()
+		fmt.Println("  Plain Text Body:")
+		fmt.Println("  " + strings.Repeat("─", 58))
+	} else {
+		fmt.Println("  Message Body:")
+		fmt.Println("  " + strings.Repeat("─", 58))
+	}
 
 	// Indent body lines
 	bodyLines := strings.Split(email.Body, "\n")
@@ -390,10 +598,53 @@ func printEmailOutput(email EmailOutput, testNum int) {
 	}
 }
 
-func printJSONOutput(alert AlertmanagerAlert, email EmailOutput) {
+func printSlackOutput(notification NotificationOutput, testNum int) {
+	fmt.Printf("  Slack Output (Test #%d):\n", testNum)
+	fmt.Println("  " + strings.Repeat("─", 58))
+	fmt.Println()
+
+	// Print formatted Slack JSON
+	slackLines := strings.Split(notification.SlackBody, "\n")
+	for _, line := range slackLines {
+		fmt.Printf("  %s\n", line)
+	}
+}
+
+func printFullOutput(notification NotificationOutput, testNum int) {
+	fmt.Printf("  Full Notification Output (Test #%d):\n", testNum)
+	fmt.Println("  " + strings.Repeat("═", 58))
+	fmt.Println()
+
+	// Email section
+	fmt.Println("  ╔═══ EMAIL (Plain Text) ═══")
+	printEmailOutput(notification.Email, testNum, false)
+	fmt.Println()
+
+	// HTML Email section
+	if notification.Email.HTMLBody != "" {
+		fmt.Println("  ╔═══ EMAIL (HTML) ═══")
+		printEmailOutput(notification.Email, testNum, true)
+		fmt.Println()
+	}
+
+	// Slack section
+	fmt.Println("  ╔═══ SLACK ═══")
+	printSlackOutput(notification, testNum)
+	fmt.Println()
+
+	// Webhook/JSON section
+	fmt.Println("  ╔═══ WEBHOOK/JSON ═══")
+	fmt.Println("  " + strings.Repeat("─", 58))
+	webhookLines := strings.Split(notification.WebhookBody, "\n")
+	for _, line := range webhookLines {
+		fmt.Printf("  %s\n", line)
+	}
+}
+
+func printJSONOutput(alert AlertmanagerAlert, notification NotificationOutput) {
 	output := map[string]interface{}{
-		"alert": alert,
-		"email": email,
+		"alert":        alert,
+		"notification": notification,
 	}
 
 	jsonData, err := json.MarshalIndent(output, "  ", "  ")
