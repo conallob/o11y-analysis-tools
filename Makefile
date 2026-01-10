@@ -2,7 +2,7 @@
 
 # Build variables
 BINARY_DIR := bin
-TOOLS := promql-fmt label-check alert-hysteresis stale-alerts-analyzer
+TOOLS := promql-fmt label-check alert-hysteresis autogen-promql-tests e2e-alertmanager-test
 
 # Go parameters
 GOCMD := go
@@ -89,7 +89,12 @@ alert-hysteresis: deps
 	@mkdir -p $(BINARY_DIR)
 	@$(GOBUILD) -o $(BINARY_DIR)/alert-hysteresis ./cmd/alert-hysteresis
 
-stale-alerts-analyzer: deps
-	@echo "Building stale-alerts-analyzer..."
+autogen-promql-tests: deps
+	@echo "Building autogen-promql-tests..."
 	@mkdir -p $(BINARY_DIR)
-	@$(GOBUILD) -o $(BINARY_DIR)/stale-alerts-analyzer ./cmd/stale-alerts-analyzer
+	@$(GOBUILD) -o $(BINARY_DIR)/autogen-promql-tests ./cmd/autogen-promql-tests
+
+e2e-alertmanager-test: deps
+	@echo "Building e2e-alertmanager-test..."
+	@mkdir -p $(BINARY_DIR)
+	@$(GOBUILD) -o $(BINARY_DIR)/e2e-alertmanager-test ./cmd/e2e-alertmanager-test
