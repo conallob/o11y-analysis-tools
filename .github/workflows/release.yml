@@ -26,28 +26,15 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      - name: Install and configure Podman
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y podman
-          # Enable Podman socket for Docker compatibility
-          sudo systemctl enable --now podman.socket
-          sudo ln -sf /run/podman/podman.sock /var/run/docker.sock
-          # Verify Podman works
-          podman version
-          podman info
-
-      - name: Set up Docker Buildx with Podman driver
-        run: |
-          # Create a buildx builder that uses Podman
-          docker buildx create --name podman-builder --driver docker-container --driver-opt image=moby/buildkit:latest --use
-          docker buildx inspect --bootstrap
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to GitHub Container Registry
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.repository_owner }} --password-stdin
-          # Also login via docker for buildx
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # Per https://goreleaser.com/ci/actions/#workflow
       - name: Run GoReleaser
