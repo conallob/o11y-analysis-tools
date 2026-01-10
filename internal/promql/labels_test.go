@@ -193,3 +193,115 @@ func TestIsPromQLKeyword(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckAlertLabels(t *testing.T) {
+	content := `
+groups:
+  - name: test-alerts
+    rules:
+      - alert: HighErrorRate
+        expr: rate(errors_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High error rate"
+
+      - alert: MissingLabels
+        expr: rate(errors_total[5m]) > 0.1
+        labels:
+          severity: critical
+        annotations:
+          summary: "Missing team label"
+
+      - alert: NoLabelsSection
+        expr: up == 0
+        annotations:
+          summary: "No labels section at all"
+`
+
+	requiredLabels := []string{"severity", "team"}
+	violations := CheckAlertLabels(content, requiredLabels)
+
+	// Should find 3 alerts total
+	if len(violations) != 2 {
+		t.Errorf("Expected 2 violations, got %d", len(violations))
+	}
+
+	// First alert (HighErrorRate) should have no missing labels
+	// Second alert (MissingLabels) should be missing 'team'
+	foundMissingTeam := false
+	for _, v := range violations {
+		if v.AlertName == "MissingLabels" {
+			if len(v.MissingLabels) != 1 || v.MissingLabels[0] != "team" {
+				t.Errorf("Alert 'MissingLabels' should be missing 'team', got %v", v.MissingLabels)
+			}
+			foundMissingTeam = true
+		}
+	}
+
+	if !foundMissingTeam {
+		t.Errorf("Did not find violation for 'MissingLabels' alert")
+	}
+
+	// Third alert (NoLabelsSection) should be missing both labels
+	foundNoLabels := false
+	for _, v := range violations {
+		if v.AlertName == "NoLabelsSection" {
+			if len(v.MissingLabels) != 2 {
+				t.Errorf("Alert 'NoLabelsSection' should be missing both labels, got %v", v.MissingLabels)
+			}
+			foundNoLabels = true
+		}
+	}
+
+	if !foundNoLabels {
+		t.Errorf("Did not find violation for 'NoLabelsSection' alert")
+	}
+}
+
+func TestCheckAlertLabelsWithCommonLabels(t *testing.T) {
+	content := `
+groups:
+  - name: infrastructure-alerts
+    rules:
+      - alert: DatabaseDown
+        expr: up{job="postgres"} == 0
+        labels:
+          severity: critical
+          grafana_url: "https://grafana.example.com/d/postgres"
+          runbook: "https://runbook.example.com/postgres-down"
+        annotations:
+          summary: "Database is down"
+`
+
+	requiredLabels := []string{"severity", "grafana_url", "runbook"}
+	violations := CheckAlertLabels(content, requiredLabels)
+
+	if len(violations) != 0 {
+		t.Errorf("Expected no violations, got %d: %v", len(violations), violations)
+	}
+}
+
+func TestCheckAlertLabelsWithLocationLabel(t *testing.T) {
+	content := `
+groups:
+  - name: regional-alerts
+    rules:
+      - alert: HighLatency
+        expr: http_request_duration_seconds > 1
+        labels:
+          severity: warning
+          location: us-east-1
+        annotations:
+          summary: "High latency detected"
+`
+
+	requiredLabels := []string{"severity", "location"}
+	violations := CheckAlertLabels(content, requiredLabels)
+
+	if len(violations) != 0 {
+		t.Errorf("Expected no violations for alert with location label, got %d: %v", len(violations), violations)
+	}
+}
