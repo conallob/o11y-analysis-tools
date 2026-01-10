@@ -63,7 +63,7 @@ func main() {
 	for _, path := range flag.Args() {
 		// Handle stdin input
 		if path == "-" {
-			content, err := os.ReadFile(os.Stdin.Name())
+			content, err := io.ReadAll(os.Stdin)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error reading stdin: %v\n", err)
 				exitCode = 1
