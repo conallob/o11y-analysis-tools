@@ -805,7 +805,7 @@ func checkTimeseriesContinuity(content string, prometheusURL string, verbose boo
 }
 
 // checkMetricContinuity checks if a metric has continuous data in Prometheus
-func checkMetricContinuity(prometheusURL, metricName string) (bool, error) {
+func checkMetricContinuity(prometheusURL, metricName string) (isSparse bool, err error) {
 	// Query for the last hour of data with 1-minute resolution
 	endTime := time.Now()
 	startTime := endTime.Add(-1 * time.Hour)
@@ -863,11 +863,23 @@ func checkMetricContinuity(prometheusURL, metricName string) (bool, error) {
 
 		var lastTimestamp int64
 		gapCount := 0
+		hasValidTimestamp := false
 
 		for i, value := range result.Values {
-			timestamp := int64(value[0].(float64))
+			// Defensive check: ensure value has at least one element
+			if len(value) < 1 {
+				continue
+			}
 
-			if i > 0 {
+			// Safe type assertion with comma-ok idiom
+			ts, ok := value[0].(float64)
+			if !ok {
+				return false, fmt.Errorf("unexpected timestamp type at index %d: expected float64, got %T", i, value[0])
+			}
+			timestamp := int64(ts)
+
+			// Only check for gaps if we have a previous valid timestamp
+			if hasValidTimestamp {
 				gap := timestamp - lastTimestamp
 				// Gap > 120 seconds (2 minutes) indicates sparse data
 				if gap > 120 {
@@ -876,6 +888,7 @@ func checkMetricContinuity(prometheusURL, metricName string) (bool, error) {
 			}
 
 			lastTimestamp = timestamp
+			hasValidTimestamp = true
 		}
 
 		// If we found gaps in the data, consider it sparse
