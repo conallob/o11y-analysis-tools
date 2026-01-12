@@ -308,13 +308,22 @@ func roundToSensibleDuration(d time.Duration) time.Duration {
 	return sensibleDurations[len(sensibleDurations)-1]
 }
 
+// PromQLRule represents a single Prometheus rule (alert or recording)
+type PromQLRule struct {
+	Alert          string            `yaml:"alert,omitempty"`
+	Record         string            `yaml:"record,omitempty"`
+	Expr           string            `yaml:"expr"`
+	For            string            `yaml:"for,omitempty"`
+	KeepFiringFor  string            `yaml:"keep_firing_for,omitempty"`
+	Labels         map[string]string `yaml:"labels,omitempty"`
+	Annotations    map[string]string `yaml:"annotations,omitempty"`
+}
+
 // PrometheusRuleGroup represents a Prometheus rule group
 type PrometheusRuleGroup struct {
-	Name  string `yaml:"name"`
-	Rules []struct {
-		Alert string `yaml:"alert"`
-		For   string `yaml:"for"`
-	} `yaml:"rules"`
+	Name     string       `yaml:"name"`
+	Interval string       `yaml:"interval,omitempty"`
+	Rules    []PromQLRule `yaml:"rules"`
 }
 
 // PrometheusRules represents the top-level Prometheus rules structure
@@ -540,10 +549,7 @@ func DeleteAlertsFromRules(filename string, alertsToDelete []string) error {
 
 	// Remove alerts from each group
 	for gi := range rules.Groups {
-		var filteredRules []struct {
-			Alert string `yaml:"alert"`
-			For   string `yaml:"for"`
-		}
+		var filteredRules []PromQLRule
 
 		for _, rule := range rules.Groups[gi].Rules {
 			if !deleteSet[rule.Alert] {
