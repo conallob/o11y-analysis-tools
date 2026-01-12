@@ -1,6 +1,9 @@
 package formatting
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -731,5 +734,332 @@ func TestCheckAggregationPlacement(t *testing.T) {
 				t.Errorf("Expected no issues but got: %v", issues)
 			}
 		})
+	}
+}
+
+func TestCheckAlertHysteresisWithDuration(t *testing.T) {
+	tests := []struct {
+		name        string
+		content     string
+		expectIssue bool
+	}{
+		{
+			name: "alert with both for clause and duration",
+			content: `groups:
+  - name: test
+    rules:
+      - alert: HighErrorRate
+        expr: rate(http_errors_total[5m]) > 0.05
+        for: 2m
+        annotations:
+          summary: High error rate`,
+			expectIssue: true,
+		},
+		{
+			name: "alert with for clause but no duration in expression",
+			content: `groups:
+  - name: test
+    rules:
+      - alert: HighValue
+        expr: some_metric > 100
+        for: 5m
+        annotations:
+          summary: High value`,
+			expectIssue: false,
+		},
+		{
+			name: "alert with duration but no for clause",
+			content: `groups:
+  - name: test
+    rules:
+      - alert: HighErrorRate
+        expr: rate(http_errors_total[5m]) > 0.05
+        annotations:
+          summary: High error rate`,
+			expectIssue: false,
+		},
+		{
+			name: "recording rule with duration (not checked)",
+			content: `groups:
+  - name: test
+    rules:
+      - record: job:http_requests:rate5m
+        expr: rate(http_requests_total[5m])`,
+			expectIssue: false,
+		},
+		{
+			name: "alert with multiple durations and for clause",
+			content: `groups:
+  - name: test
+    rules:
+      - alert: ComplexAlert
+        expr: rate(metric1[5m]) / rate(metric2[10m]) > 0.5
+        for: 3m
+        annotations:
+          summary: Complex alert`,
+			expectIssue: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issues := checkAlertHysteresisWithDuration(tt.content)
+
+			if tt.expectIssue && len(issues) == 0 {
+				t.Errorf("Expected issue but got none")
+			}
+			if !tt.expectIssue && len(issues) > 0 {
+				t.Errorf("Expected no issues but got: %v", issues)
+			}
+		})
+	}
+}
+
+func TestCheckAlertHysteresisWithDurationInvalidYAML(t *testing.T) {
+	// Test that invalid YAML doesn't cause a panic
+	content := `this is not valid YAML { [ ] }`
+	issues := checkAlertHysteresisWithDuration(content)
+
+	if len(issues) != 0 {
+		t.Errorf("Expected no issues for invalid YAML, but got: %v", issues)
+	}
+}
+
+func TestCheckTimeseriesContinuity(t *testing.T) {
+	tests := []struct {
+		name        string
+		content     string
+		expectIssue bool
+	}{
+		{
+			name: "valid YAML with metric",
+			content: `groups:
+  - name: test
+    rules:
+      - alert: HighErrorRate
+        expr: http_requests_total > 100`,
+			expectIssue: false, // Will not actually call Prometheus in this test
+		},
+		{
+			name:        "invalid YAML",
+			content:     `this is not valid YAML { [ ] }`,
+			expectIssue: false, // Should gracefully handle invalid YAML
+		},
+		{
+			name: "no metrics in rules",
+			content: `groups:
+  - name: test
+    rules: []`,
+			expectIssue: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Use empty Prometheus URL to skip actual HTTP calls
+			issues := checkTimeseriesContinuity(tt.content, "", false)
+
+			if tt.expectIssue && len(issues) == 0 {
+				t.Errorf("Expected issue but got none")
+			}
+			if !tt.expectIssue && len(issues) > 0 {
+				t.Errorf("Expected no issues but got: %v", issues)
+			}
+		})
+	}
+}
+
+func TestCheckMetricContinuity(t *testing.T) {
+	tests := []struct {
+		name           string
+		responseBody   interface{}
+		responseStatus int
+		expectSparse   bool
+		expectError    bool
+	}{
+		{
+			name: "continuous data (no gaps)",
+			responseBody: map[string]interface{}{
+				"status": "success",
+				"data": map[string]interface{}{
+					"resultType": "matrix",
+					"result": []map[string]interface{}{
+						{
+							"metric": map[string]string{"__name__": "test_metric"},
+							"values": [][]interface{}{
+								{1609459200.0, "1"},
+								{1609459260.0, "1"}, // 60 seconds later
+								{1609459320.0, "1"}, // 60 seconds later
+								{1609459380.0, "1"}, // 60 seconds later
+							},
+						},
+					},
+				},
+			},
+			responseStatus: http.StatusOK,
+			expectSparse:   false,
+			expectError:    false,
+		},
+		{
+			name: "sparse data (gaps > 2 minutes)",
+			responseBody: map[string]interface{}{
+				"status": "success",
+				"data": map[string]interface{}{
+					"resultType": "matrix",
+					"result": []map[string]interface{}{
+						{
+							"metric": map[string]string{"__name__": "test_metric"},
+							"values": [][]interface{}{
+								{1609459200.0, "1"},
+								{1609459260.0, "1"}, // 60 seconds later
+								{1609459500.0, "1"}, // 240 seconds later - GAP!
+								{1609459560.0, "1"}, // 60 seconds later
+							},
+						},
+					},
+				},
+			},
+			responseStatus: http.StatusOK,
+			expectSparse:   true,
+			expectError:    false,
+		},
+		{
+			name: "no data returned",
+			responseBody: map[string]interface{}{
+				"status": "success",
+				"data": map[string]interface{}{
+					"resultType": "matrix",
+					"result":     []map[string]interface{}{},
+				},
+			},
+			responseStatus: http.StatusOK,
+			expectSparse:   false,
+			expectError:    true,
+		},
+		{
+			name: "insufficient data points",
+			responseBody: map[string]interface{}{
+				"status": "success",
+				"data": map[string]interface{}{
+					"resultType": "matrix",
+					"result": []map[string]interface{}{
+						{
+							"metric": map[string]string{"__name__": "test_metric"},
+							"values": [][]interface{}{
+								{1609459200.0, "1"}, // Only one data point
+							},
+						},
+					},
+				},
+			},
+			responseStatus: http.StatusOK,
+			expectSparse:   false,
+			expectError:    false,
+		},
+		{
+			name:           "HTTP error from Prometheus",
+			responseBody:   map[string]interface{}{"error": "internal error"},
+			responseStatus: http.StatusInternalServerError,
+			expectSparse:   false,
+			expectError:    true,
+		},
+		{
+			name: "invalid timestamp type (string instead of float64)",
+			responseBody: map[string]interface{}{
+				"status": "success",
+				"data": map[string]interface{}{
+					"resultType": "matrix",
+					"result": []map[string]interface{}{
+						{
+							"metric": map[string]string{"__name__": "test_metric"},
+							"values": [][]interface{}{
+								{"invalid", "1"}, // String instead of float64
+								{1609459260.0, "1"},
+							},
+						},
+					},
+				},
+			},
+			responseStatus: http.StatusOK,
+			expectSparse:   false,
+			expectError:    true, // Should error on invalid type
+		},
+		{
+			name: "empty value array",
+			responseBody: map[string]interface{}{
+				"status": "success",
+				"data": map[string]interface{}{
+					"resultType": "matrix",
+					"result": []map[string]interface{}{
+						{
+							"metric": map[string]string{"__name__": "test_metric"},
+							"values": [][]interface{}{
+								{}, // Empty array - should be skipped
+								{1609459200.0, "1"},
+								{1609459260.0, "1"},
+							},
+						},
+					},
+				},
+			},
+			responseStatus: http.StatusOK,
+			expectSparse:   false,
+			expectError:    false, // Should handle gracefully
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create mock Prometheus server
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tt.responseStatus)
+				if err := json.NewEncoder(w).Encode(tt.responseBody); err != nil {
+					t.Fatalf("Failed to encode response: %v", err)
+				}
+			}))
+			defer server.Close()
+
+			// Call the function
+			isSparse, err := checkMetricContinuity(server.URL, "test_metric")
+
+			// Check error expectation
+			if tt.expectError && err == nil {
+				t.Errorf("Expected error but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("Expected no error but got: %v", err)
+			}
+
+			// Check sparse expectation (only if no error expected)
+			if !tt.expectError {
+				if isSparse != tt.expectSparse {
+					t.Errorf("Expected isSparse=%v but got %v", tt.expectSparse, isSparse)
+				}
+			}
+		})
+	}
+}
+
+func TestCheckMetricContinuityHTTPFailure(t *testing.T) {
+	// Test with invalid URL to trigger HTTP error
+	_, err := checkMetricContinuity("http://invalid-prometheus-url-that-does-not-exist:9999", "test_metric")
+	if err == nil {
+		t.Error("Expected error for invalid Prometheus URL but got none")
+	}
+}
+
+func TestCheckMetricContinuityInvalidJSON(t *testing.T) {
+	// Create mock server returning invalid JSON
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write([]byte("this is not valid JSON {[}")); err != nil {
+			t.Fatalf("Failed to write response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	_, err := checkMetricContinuity(server.URL, "test_metric")
+	if err == nil {
+		t.Error("Expected error for invalid JSON but got none")
 	}
 }

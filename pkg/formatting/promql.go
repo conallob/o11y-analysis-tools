@@ -2,14 +2,23 @@
 package formatting
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
+	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // CheckOptions configures the behavior of CheckAndFormatPromQL
 type CheckOptions struct {
 	DisableLineLength bool
+	PrometheusURL     string
+	Verbose           bool
 }
 
 // AggregationStyle tracks the position of aggregation clauses
@@ -25,10 +34,42 @@ const (
 	AggregationStylePrefix
 )
 
+// PromQLRule represents a single Prometheus rule (alert or recording)
+type PromQLRule struct {
+	Alert       string            `yaml:"alert,omitempty"`
+	Record      string            `yaml:"record,omitempty"`
+	Expr        string            `yaml:"expr"`
+	For         string            `yaml:"for,omitempty"`
+	Labels      map[string]string `yaml:"labels,omitempty"`
+	Annotations map[string]string `yaml:"annotations,omitempty"`
+}
+
+// PrometheusRuleGroup represents a Prometheus rule group
+type PrometheusRuleGroup struct {
+	Name     string       `yaml:"name"`
+	Interval string       `yaml:"interval,omitempty"`
+	Rules    []PromQLRule `yaml:"rules"`
+}
+
+// PrometheusRules represents the top-level Prometheus rules structure
+type PrometheusRules struct {
+	Groups []PrometheusRuleGroup `yaml:"groups"`
+}
+
 // CheckAndFormatPromQL analyzes YAML content for PromQL expressions and formats them
 func CheckAndFormatPromQL(content string, opts CheckOptions) ([]string, string) {
 	var issues []string
 	formatted := content
+
+	// Check for alert rules with both duration and hysteresis
+	hysteresisIssues := checkAlertHysteresisWithDuration(content)
+	issues = append(issues, hysteresisIssues...)
+
+	// Check timeseries continuity if Prometheus URL provided
+	if opts.PrometheusURL != "" {
+		continuityIssues := checkTimeseriesContinuity(content, opts.PrometheusURL, opts.Verbose)
+		issues = append(issues, continuityIssues...)
+	}
 
 	// Track aggregation clause positioning for consistency
 	var dominantStyle AggregationStyle
@@ -666,4 +707,195 @@ func checkAggregationPlacement(expr string) []string {
 	}
 
 	return issues
+}
+
+// checkAlertHysteresisWithDuration checks for alert rules with both a duration in the expression and a 'for' clause
+func checkAlertHysteresisWithDuration(content string) []string {
+	var issues []string
+
+	// Try to parse as Prometheus rules YAML
+	var rules PrometheusRules
+	if err := yaml.Unmarshal([]byte(content), &rules); err != nil {
+		// Not valid Prometheus rules format, skip this check
+		return issues
+	}
+
+	// Duration pattern in PromQL expressions: [5m], [1h], etc.
+	durationRegex := regexp.MustCompile(`\[(\d+[smhdwy])\]`)
+
+	for _, group := range rules.Groups {
+		for _, rule := range group.Rules {
+			// Only check alert rules (not recording rules)
+			if rule.Alert == "" {
+				continue
+			}
+
+			// Check if rule has both a 'for' clause and a duration in the expression
+			if rule.For != "" {
+				if durationRegex.MatchString(rule.Expr) {
+					matches := durationRegex.FindAllStringSubmatch(rule.Expr, -1)
+					durations := make([]string, 0, len(matches))
+					for _, match := range matches {
+						if len(match) > 1 {
+							durations = append(durations, match[1])
+						}
+					}
+					issues = append(issues, fmt.Sprintf(
+						"Alert '%s' has both a 'for: %s' clause (hysteresis) and duration(s) %v in the expression - "+
+							"consider removing the duration as the sliding window may interact poorly with hysteresis",
+						rule.Alert, rule.For, durations))
+				}
+			}
+		}
+	}
+
+	return issues
+}
+
+// checkTimeseriesContinuity checks PromQL rules against a running Prometheus for timeseries continuity
+func checkTimeseriesContinuity(content string, prometheusURL string, verbose bool) []string {
+	var issues []string
+
+	// Try to parse as Prometheus rules YAML
+	var rules PrometheusRules
+	if err := yaml.Unmarshal([]byte(content), &rules); err != nil {
+		// Not valid Prometheus rules format, skip this check
+		return issues
+	}
+
+	// Extract all metric names from all rules
+	metricNames := make(map[string]bool)
+	for _, group := range rules.Groups {
+		for _, rule := range group.Rules {
+			names := extractMetricNames(rule.Expr)
+			for _, name := range names {
+				metricNames[name] = true
+			}
+		}
+	}
+
+	if len(metricNames) == 0 {
+		return issues
+	}
+
+	// Check continuity for each metric
+	for metricName := range metricNames {
+		if verbose {
+			fmt.Printf("Checking timeseries continuity for metric: %s\n", metricName)
+		}
+
+		// Query Prometheus for the last hour of data with 1-minute step
+		isSparse, err := checkMetricContinuity(prometheusURL, metricName)
+		if err != nil {
+			if verbose {
+				fmt.Printf("Warning: Could not check metric '%s': %v\n", metricName, err)
+			}
+			continue
+		}
+
+		if isSparse {
+			issues = append(issues, fmt.Sprintf(
+				"Metric '%s' has sparse data (gaps > 2 minutes detected) - "+
+					"timeseries databases don't handle sparse values well for alerting rules",
+				metricName))
+		}
+	}
+
+	return issues
+}
+
+// checkMetricContinuity checks if a metric has continuous data in Prometheus
+func checkMetricContinuity(prometheusURL, metricName string) (isSparse bool, err error) {
+	// Query for the last hour of data with 1-minute resolution
+	endTime := time.Now()
+	startTime := endTime.Add(-1 * time.Hour)
+
+	params := url.Values{}
+	params.Add("query", metricName)
+	params.Add("start", fmt.Sprintf("%d", startTime.Unix()))
+	params.Add("end", fmt.Sprintf("%d", endTime.Unix()))
+	params.Add("step", "60s") // 1 minute resolution
+
+	queryURL := fmt.Sprintf("%s/api/v1/query_range?%s", prometheusURL, params.Encode())
+
+	resp, err := http.Get(queryURL)
+	if err != nil {
+		return false, fmt.Errorf("failed to query Prometheus: %w", err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return false, fmt.Errorf("prometheus returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var promResp struct {
+		Status string `json:"status"`
+		Data   struct {
+			ResultType string `json:"resultType"`
+			Result     []struct {
+				Metric map[string]string `json:"metric"`
+				Values [][]interface{}   `json:"values"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&promResp); err != nil {
+		return false, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// If no data returned, metric doesn't exist or has no data
+	if len(promResp.Data.Result) == 0 {
+		return false, fmt.Errorf("no data found for metric")
+	}
+
+	// Check for gaps in the timeseries
+	// We consider data "sparse" if there are gaps > 2 minutes (2x the step size)
+	for _, result := range promResp.Data.Result {
+		if len(result.Values) < 2 {
+			// Not enough data points to determine continuity
+			continue
+		}
+
+		var lastTimestamp int64
+		gapCount := 0
+		hasValidTimestamp := false
+
+		for i, value := range result.Values {
+			// Defensive check: ensure value has at least one element
+			if len(value) < 1 {
+				continue
+			}
+
+			// Safe type assertion with comma-ok idiom
+			ts, ok := value[0].(float64)
+			if !ok {
+				return false, fmt.Errorf("unexpected timestamp type at index %d: expected float64, got %T", i, value[0])
+			}
+			timestamp := int64(ts)
+
+			// Only check for gaps if we have a previous valid timestamp
+			if hasValidTimestamp {
+				gap := timestamp - lastTimestamp
+				// Gap > 120 seconds (2 minutes) indicates sparse data
+				if gap > 120 {
+					gapCount++
+				}
+			}
+
+			lastTimestamp = timestamp
+			hasValidTimestamp = true
+		}
+
+		// If we found gaps in the data, consider it sparse
+		if gapCount > 0 {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
