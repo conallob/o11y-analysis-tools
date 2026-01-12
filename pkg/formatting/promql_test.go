@@ -733,3 +733,91 @@ func TestCheckAggregationPlacement(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckAlertHysteresisWithDuration(t *testing.T) {
+	tests := []struct {
+		name        string
+		content     string
+		expectIssue bool
+	}{
+		{
+			name: "alert with both for clause and duration",
+			content: `groups:
+  - name: test
+    rules:
+      - alert: HighErrorRate
+        expr: rate(http_errors_total[5m]) > 0.05
+        for: 2m
+        annotations:
+          summary: High error rate`,
+			expectIssue: true,
+		},
+		{
+			name: "alert with for clause but no duration in expression",
+			content: `groups:
+  - name: test
+    rules:
+      - alert: HighValue
+        expr: some_metric > 100
+        for: 5m
+        annotations:
+          summary: High value`,
+			expectIssue: false,
+		},
+		{
+			name: "alert with duration but no for clause",
+			content: `groups:
+  - name: test
+    rules:
+      - alert: HighErrorRate
+        expr: rate(http_errors_total[5m]) > 0.05
+        annotations:
+          summary: High error rate`,
+			expectIssue: false,
+		},
+		{
+			name: "recording rule with duration (not checked)",
+			content: `groups:
+  - name: test
+    rules:
+      - record: job:http_requests:rate5m
+        expr: rate(http_requests_total[5m])`,
+			expectIssue: false,
+		},
+		{
+			name: "alert with multiple durations and for clause",
+			content: `groups:
+  - name: test
+    rules:
+      - alert: ComplexAlert
+        expr: rate(metric1[5m]) / rate(metric2[10m]) > 0.5
+        for: 3m
+        annotations:
+          summary: Complex alert`,
+			expectIssue: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issues := checkAlertHysteresisWithDuration(tt.content)
+
+			if tt.expectIssue && len(issues) == 0 {
+				t.Errorf("Expected issue but got none")
+			}
+			if !tt.expectIssue && len(issues) > 0 {
+				t.Errorf("Expected no issues but got: %v", issues)
+			}
+		})
+	}
+}
+
+func TestCheckAlertHysteresisWithDurationInvalidYAML(t *testing.T) {
+	// Test that invalid YAML doesn't cause a panic
+	content := `this is not valid YAML { [ ] }`
+	issues := checkAlertHysteresisWithDuration(content)
+
+	if len(issues) != 0 {
+		t.Errorf("Expected no issues for invalid YAML, but got: %v", issues)
+	}
+}

@@ -18,6 +18,7 @@ func main() {
 		check            = flag.Bool("check", true, "check formatting without fixing (default)")
 		verbose          = flag.Bool("verbose", false, "verbose output")
 		disableLineCheck = flag.Bool("disable-line-length", false, "disable line length checks for long metric names")
+		prometheusURL    = flag.String("prometheus-url", "", "Prometheus server URL for timeseries continuity checks (optional)")
 	)
 
 	flag.Usage = func() {
@@ -69,6 +70,8 @@ func main() {
 
 			opts := formatting.CheckOptions{
 				DisableLineLength: *disableLineCheck,
+				PrometheusURL:     *prometheusURL,
+				Verbose:           *verbose,
 			}
 			issues, formatted := formatting.CheckAndFormatPromQL(string(content), opts)
 
