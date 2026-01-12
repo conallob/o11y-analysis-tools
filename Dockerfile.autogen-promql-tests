@@ -1,0 +1,7 @@
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+COPY autogen-promql-tests /usr/local/bin/autogen-promql-tests
+
+ENTRYPOINT ["/usr/local/bin/autogen-promql-tests"]
