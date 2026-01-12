@@ -229,7 +229,7 @@ brews:
     repository:
       owner: conallob
       name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
     homepage: https://github.com/conallob/o11y-analysis-tools
     description: Static analysis and testing tools for PromQL-compatible monitoring systems
