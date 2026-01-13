@@ -531,6 +531,9 @@ func checkPrometheusBestPractices(expr string) []string {
 	// Check for instrumentation best practices
 	issues = append(issues, checkInstrumentationPatterns(expr)...)
 
+	// Check for synthetic metrics without proper label selectors
+	issues = append(issues, checkSyntheticMetrics(expr)...)
+
 	return issues
 }
 
@@ -716,6 +719,36 @@ func checkInstrumentationPatterns(expr string) []string {
 	if strings.Contains(expr, " / ") && !strings.Contains(expr, " or ") {
 		if !strings.Contains(expr, "!= 0") {
 			issues = append(issues, "Division detected without zero-protection - consider adding '... or 1' or checking for non-zero denominator")
+		}
+	}
+
+	return issues
+}
+
+// checkSyntheticMetrics validates that synthetic metrics have proper label selectors
+func checkSyntheticMetrics(expr string) []string {
+	var issues []string
+
+	// Check for 'up' metric without job label selector
+	// Pattern: match 'up' as a word boundary, optionally followed by label selectors,
+	// then followed by a valid boundary character (bracket, paren, whitespace, comma, or end)
+	upRegex := regexp.MustCompile(`\bup(?:\s*(\{[^}]*\}))?(?:\s*\[|[\)\s,]|$)`)
+	matches := upRegex.FindAllStringSubmatch(expr, -1)
+
+	for _, match := range matches {
+		hasJobLabel := false
+
+		// Check if there's a label selector (captured in match[1])
+		if len(match) > 1 && match[1] != "" {
+			labelSelector := match[1]
+			// Look for job="..." or job=~"..."
+			if regexp.MustCompile(`job\s*=~?`).MatchString(labelSelector) {
+				hasJobLabel = true
+			}
+		}
+
+		if !hasJobLabel {
+			issues = append(issues, "Synthetic metric 'up' should always include a job label selector (e.g., up{job=\"...\"}) to avoid matching multiple jobs")
 		}
 	}
 

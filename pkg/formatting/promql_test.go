@@ -448,6 +448,72 @@ func TestCheckInstrumentationPatterns(t *testing.T) {
 	}
 }
 
+func TestCheckSyntheticMetrics(t *testing.T) {
+	tests := []struct {
+		name        string
+		expr        string
+		expectIssue bool
+	}{
+		{
+			name:        "up without any label selector",
+			expr:        "up",
+			expectIssue: true,
+		},
+		{
+			name:        "up with job label selector",
+			expr:        `up{job="api"}`,
+			expectIssue: false,
+		},
+		{
+			name:        "up with job and instance labels",
+			expr:        `up{job="api",instance="localhost:9090"}`,
+			expectIssue: false,
+		},
+		{
+			name:        "up with only instance label (missing job)",
+			expr:        `up{instance="localhost:9090"}`,
+			expectIssue: true,
+		},
+		{
+			name:        "up with job regex matcher",
+			expr:        `up{job=~"api.*"}`,
+			expectIssue: false,
+		},
+		{
+			name:        "up in aggregation without job",
+			expr:        "sum(up) by (instance)",
+			expectIssue: true,
+		},
+		{
+			name:        "up in aggregation with job",
+			expr:        `sum(up{job="api"}) by (instance)`,
+			expectIssue: false,
+		},
+		{
+			name:        "up with range selector but no job",
+			expr:        "up[5m]",
+			expectIssue: true,
+		},
+		{
+			name:        "up with job and range selector",
+			expr:        `up{job="api"}[5m]`,
+			expectIssue: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issues := checkSyntheticMetrics(tt.expr)
+			if tt.expectIssue && len(issues) == 0 {
+				t.Errorf("Expected issue but got none")
+			}
+			if !tt.expectIssue && len(issues) > 0 {
+				t.Errorf("Expected no issues but got: %v", issues)
+			}
+		})
+	}
+}
+
 func TestExtractMetricNames(t *testing.T) {
 	tests := []struct {
 		name     string
