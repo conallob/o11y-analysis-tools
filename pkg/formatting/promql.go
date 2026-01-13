@@ -271,7 +271,7 @@ func formatPromQLMultiline(expr string) string {
 				opLine := strings.TrimSpace(op)
 				if len(matchingLabels) > 0 {
 					// Add on() clause for explicit vector matching
-					opLine = opLine + " on(" + strings.Join(matchingLabels, ", ") + ")"
+					opLine = opLine + " on (" + strings.Join(matchingLabels, ", ") + ")"
 				}
 
 				// Combine with indented operator

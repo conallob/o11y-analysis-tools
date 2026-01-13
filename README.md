@@ -59,7 +59,7 @@ expr: |
   sum (
     rate(http_requests_total{job="api",status=~"5.."}[5m])
   )
-    / on(instance)
+    / on (instance)
   sum by (instance) (
     rate(http_requests_total{job="api"}[5m])
   )

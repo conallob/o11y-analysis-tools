@@ -58,7 +58,7 @@ func TestFormatPromQLMultiline(t *testing.T) {
 			expected: `sum (
   rate(http_requests_total{job="api",status=~"5.."}[5m])
 )
-  / on(instance)
+  / on (instance)
 sum by (instance) (
   rate(http_requests_total{job="api"}[5m])
 )`,
@@ -85,7 +85,7 @@ sum (
 			expected: `avg (
   metric1
 )
-  * on(pod)
+  * on (pod)
 count by (pod) (
   metric2
 )`,
@@ -107,7 +107,7 @@ sum without (instance) (
 			expected: `sum by (pod) (
   metric1
 )
-  / on(instance)
+  / on (instance)
 sum by (instance) (
   metric2
 )`,
