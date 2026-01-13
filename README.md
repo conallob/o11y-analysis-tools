@@ -56,8 +56,13 @@ expr: sum(rate(http_requests_total{job="api",status=~"5.."}[5m])) by (instance) 
 After:
 ```yaml
 expr: |
-  sum(rate(http_requests_total{job="api",status=~"5.."}[5m])) by (instance)
-  / sum(rate(http_requests_total{job="api"}[5m])) by (instance)
+  sum by (instance) (
+    rate(http_requests_total{job="api",status=~"5.."}[5m])
+  )
+    /
+  sum by (instance) (
+    rate(http_requests_total{job="api"}[5m])
+  )
 ```
 
 ### 2. label-check - Label Standards Enforcement
