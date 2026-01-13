@@ -9,6 +9,18 @@
 
 A collection of static analysis and testing tools for PromQL-compatible monitoring systems. All tools are written in Go and designed for use in CI/CD workflows with `--check` functionality by default.
 
+## Background
+
+This collection of static analysis tools are intended to help:
+* maintain PromQL rules, by keeping them readable, consistent, unit tested and most importantly, approachable by non PromQL experts
+* identify common bugs regarding labels, time controls, etc
+* maintain high quality, actionable alerts, including with the ability to preview how an alert would render
+* identifying alerts in need of refinement and even deletion once they are no longer useful
+
+
+Each of these tools is inspired from the mistakes I've made when writing PromQL rules, issues seen when peer reviewing PromQL PRs or providing PromQL
+consultations, during my tenure as a member of [Google SRE](https://sre.google)
+
 ## Tools
 
 ### 1. promql-fmt - PromQL Expression Formatter
