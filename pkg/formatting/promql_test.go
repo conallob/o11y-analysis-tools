@@ -58,7 +58,7 @@ func TestFormatPromQLMultiline(t *testing.T) {
 			expected: `sum (
   rate(http_requests_total{job="api",status=~"5.."}[5m])
 )
-  /
+  / on(instance)
 sum by (instance) (
   rate(http_requests_total{job="api"}[5m])
 )`,
@@ -85,7 +85,7 @@ sum (
 			expected: `avg (
   metric1
 )
-  *
+  * on(pod)
 count by (pod) (
   metric2
 )`,
@@ -102,12 +102,12 @@ sum without (instance) (
 )`,
 		},
 		{
-			name:  "different aggregation clauses - not optimized",
+			name:  "different aggregation clauses - not optimized but with on() clause",
 			input: `sum(metric1) by (pod) / sum(metric2) by (instance)`,
 			expected: `sum by (pod) (
   metric1
 )
-  /
+  / on(instance)
 sum by (instance) (
   metric2
 )`,

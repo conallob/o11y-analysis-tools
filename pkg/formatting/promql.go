@@ -229,6 +229,7 @@ func formatPromQLMultiline(expr string) string {
 	// 3. Binary operators indented by 2 spaces on their own line
 	// 4. Nested expressions properly indented
 	// 5. Remove redundant aggregation clauses from left operand when both operands have the same clause
+	// 6. Add on() clause when operands have common label selectors for explicit vector matching
 
 	// First, try to split by binary operators
 	binaryOps := []string{" / ", " * ", " + ", " - ", " % ", " ^ "}
@@ -248,12 +249,33 @@ func formatPromQLMultiline(expr string) string {
 				// Exception: 'without' needs to be explicit on both sides
 				omitLeftAggregation := leftAgg != "" && leftAgg == rightAgg && !strings.Contains(leftAgg, "without")
 
+				// Extract matching labels from aggregation clause if present
+				var matchingLabels []string
+				if rightAgg != "" && strings.Contains(rightAgg, "by") {
+					// Extract labels from by clause: ) by (label1, label2)
+					byRegex := regexp.MustCompile(`by\s*\(([^)]+)\)`)
+					if match := byRegex.FindStringSubmatch(rightAgg); len(match) >= 2 {
+						labelStr := strings.TrimSpace(match[1])
+						labels := strings.Split(labelStr, ",")
+						for _, label := range labels {
+							matchingLabels = append(matchingLabels, strings.TrimSpace(label))
+						}
+					}
+				}
+
 				// Format each operand
 				left := formatOperand(leftStr, 0, omitLeftAggregation)
 				right := formatOperand(rightStr, 0, false)
 
+				// Build operator line with optional on() clause
+				opLine := strings.TrimSpace(op)
+				if len(matchingLabels) > 0 {
+					// Add on() clause for explicit vector matching
+					opLine = opLine + " on(" + strings.Join(matchingLabels, ", ") + ")"
+				}
+
 				// Combine with indented operator
-				return left + "\n  " + strings.TrimSpace(op) + "\n" + right
+				return left + "\n  " + opLine + "\n" + right
 			}
 		}
 	}
@@ -744,6 +766,68 @@ func checkRedundantAggregations(expr string) []string {
 	}
 
 	return issues
+}
+
+// extractLabelSelectors extracts label selectors from a PromQL expression
+// Returns a map of label names to their values (or patterns for regex matchers)
+func extractLabelSelectors(expr string) map[string]string {
+	labels := make(map[string]string)
+
+	// Match label selectors: {label="value", label2=~"pattern", ...}
+	selectorRegex := regexp.MustCompile(`\{([^}]+)\}`)
+	matches := selectorRegex.FindAllStringSubmatch(expr, -1)
+
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+
+		// Parse individual label matchers within the braces
+		labelPairs := match[1]
+		// Split by comma, but be careful with quoted strings
+		pairRegex := regexp.MustCompile(`(\w+)\s*(=~?|!=~?)\s*"([^"]*)"`)
+		pairMatches := pairRegex.FindAllStringSubmatch(labelPairs, -1)
+
+		for _, pair := range pairMatches {
+			if len(pair) >= 4 {
+				labelName := pair[1]
+				operator := pair[2]
+				value := pair[3]
+
+				// Only track exact matches (=) for common label detection
+				if operator == "=" {
+					labels[labelName] = value
+				}
+			}
+		}
+	}
+
+	return labels
+}
+
+// findCommonLabels finds labels that have the same value in both operands
+func findCommonLabels(leftLabels, rightLabels map[string]string) []string {
+	common := []string{}
+
+	for label, leftVal := range leftLabels {
+		if rightVal, exists := rightLabels[label]; exists && leftVal == rightVal {
+			common = append(common, label)
+		}
+	}
+
+	// Sort for consistent output
+	if len(common) > 0 {
+		// Simple bubble sort since list is usually small
+		for i := 0; i < len(common); i++ {
+			for j := i + 1; j < len(common); j++ {
+				if common[i] > common[j] {
+					common[i], common[j] = common[j], common[i]
+				}
+			}
+		}
+	}
+
+	return common
 }
 
 // extractTrailingAggregation extracts the trailing by/without clause from an expression

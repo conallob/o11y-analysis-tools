@@ -59,13 +59,16 @@ expr: |
   sum (
     rate(http_requests_total{job="api",status=~"5.."}[5m])
   )
-    /
+    / on(instance)
   sum by (instance) (
     rate(http_requests_total{job="api"}[5m])
   )
 ```
 
-Note: The formatter automatically removes redundant aggregation clauses from the left operand when both operands share the same `by` clause, following PromQL best practices where only the final operand needs the aggregation.
+Note: The formatter automatically:
+- Removes redundant aggregation clauses from the left operand when both operands share the same `by` clause
+- Adds explicit `on()` clauses for vector matching based on the aggregation labels
+- Follows PromQL best practices where only the final operand needs the aggregation
 
 ### 2. label-check - Label Standards Enforcement
 
