@@ -526,7 +526,16 @@ func checkPrometheusBestPractices(expr string) []string {
 
 		// Check for proper suffixes
 		issues = append(issues, checkMetricSuffixes(metricName)...)
+
+		// Check recording rule naming (if applicable)
+		issues = append(issues, checkRecordingRuleNaming(metricName)...)
 	}
+
+	// Check variable/metric naming conventions
+	issues = append(issues, checkVariableNaming(expr)...)
+
+	// Check label naming conventions
+	issues = append(issues, checkLabelNaming(expr)...)
 
 	// Check for instrumentation best practices
 	issues = append(issues, checkInstrumentationPatterns(expr)...)
@@ -749,6 +758,199 @@ func checkSyntheticMetrics(expr string) []string {
 
 		if !hasJobLabel {
 			issues = append(issues, "Synthetic metric 'up' should always include a job label selector (e.g., up{job=\"...\"}) to avoid matching multiple jobs")
+		}
+	}
+
+	return issues
+}
+
+// checkVariableNaming validates metric/variable names according to Prometheus naming conventions
+func checkVariableNaming(expr string) []string {
+	var issues []string
+
+	// Extract metric names from the expression
+	metricNames := extractMetricNames(expr)
+
+	for _, metricName := range metricNames {
+		// Skip if it's already checked by checkMetricNamingConventions
+		// This function focuses on additional variable naming rules
+
+		// Check 1: Metric names should match [a-zA-Z_:][a-zA-Z0-9_:]*
+		validMetricRegex := regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
+		if !validMetricRegex.MatchString(metricName) {
+			issues = append(issues, fmt.Sprintf("Metric name '%s' should only contain alphanumeric characters, underscores, and colons, and must not start with a digit", metricName))
+			continue
+		}
+
+		// Check 2: Avoid colons in metric names (reserved for recording rules)
+		// Only check if it's not a recording rule format (level:metric:operations)
+		if strings.Contains(metricName, ":") {
+			// Check if it follows the recording rule format
+			parts := strings.Split(metricName, ":")
+			if len(parts) < 2 {
+				issues = append(issues, fmt.Sprintf("Metric name '%s' should not contain colons unless it's a recording rule (format: level:metric:operations)", metricName))
+			}
+			// If it has colons, we'll validate it with checkRecordingRuleNaming
+		}
+
+		// Check 3: Metric names should use lowercase and underscores (snake_case)
+		hasUppercase := false
+		for _, char := range metricName {
+			if char >= 'A' && char <= 'Z' {
+				hasUppercase = true
+				break
+			}
+		}
+		if hasUppercase {
+			issues = append(issues, fmt.Sprintf("Metric name '%s' should use lowercase with underscores (snake_case), not camelCase or PascalCase", metricName))
+		}
+
+		// Check 4: Don't put metric type in the name
+		metricTypes := []string{"_gauge", "_counter", "_summary", "_histogram"}
+		for _, metricType := range metricTypes {
+			if strings.HasSuffix(metricName, metricType) {
+				issues = append(issues, fmt.Sprintf("Metric name '%s' should not include the metric type (%s) in the name", metricName, metricType))
+			}
+		}
+	}
+
+	return issues
+}
+
+// checkLabelNaming validates label names according to Prometheus naming conventions
+func checkLabelNaming(expr string) []string {
+	var issues []string
+
+	// Extract label names from label selectors {label="value"}
+	labelRegex := regexp.MustCompile(`\{([^}]+)\}`)
+	matches := labelRegex.FindAllStringSubmatch(expr, -1)
+
+	seenLabels := make(map[string]bool)
+
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+
+		labelSelector := match[1]
+		// Parse individual label matchers (label="value", label=~"regex", etc.)
+		labelPairs := strings.Split(labelSelector, ",")
+
+		for _, pair := range labelPairs {
+			pair = strings.TrimSpace(pair)
+			// Extract label name (before = or =~ or != or !~)
+			labelNameRegex := regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*[!=]~?\s*.+)?$`)
+			labelMatch := labelNameRegex.FindStringSubmatch(pair)
+
+			if len(labelMatch) < 2 {
+				continue
+			}
+
+			labelName := labelMatch[1]
+
+			// Skip if we've already checked this label
+			if seenLabels[labelName] {
+				continue
+			}
+			seenLabels[labelName] = true
+
+			// Check 1: Label names should match [a-zA-Z_][a-zA-Z0-9_]*
+			validLabelRegex := regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+			if !validLabelRegex.MatchString(labelName) {
+				issues = append(issues, fmt.Sprintf("Label name '%s' should only contain alphanumeric characters and underscores, and must not start with a digit", labelName))
+				continue
+			}
+
+			// Check 2: Don't use leading underscores (reserved for internal use)
+			if strings.HasPrefix(labelName, "__") {
+				issues = append(issues, fmt.Sprintf("Label name '%s' uses double leading underscores which are reserved for internal Prometheus use", labelName))
+			} else if strings.HasPrefix(labelName, "_") {
+				issues = append(issues, fmt.Sprintf("Label name '%s' should not start with an underscore (reserved for internal use)", labelName))
+			}
+
+			// Check 3: Avoid generic label names that are too common
+			genericLabels := []string{"type"}
+			for _, generic := range genericLabels {
+				if labelName == generic {
+					issues = append(issues, fmt.Sprintf("Label name '%s' is too generic and should be avoided. Consider using a more specific name", labelName))
+				}
+			}
+		}
+	}
+
+	return issues
+}
+
+// checkRecordingRuleNaming validates recording rule names follow the level:metric:operations format
+func checkRecordingRuleNaming(metricName string) []string {
+	var issues []string
+
+	// Recording rules should follow the format: level:metric:operations
+	// Example: job:http_requests_total:rate5m
+
+	// Only validate if the metric name contains colons (indicating it's likely a recording rule)
+	if !strings.Contains(metricName, ":") {
+		return issues
+	}
+
+	parts := strings.Split(metricName, ":")
+
+	// Should have at least 2 parts (level:metric) but typically 3 (level:metric:operations)
+	if len(parts) < 2 {
+		issues = append(issues, fmt.Sprintf("Recording rule '%s' should follow format 'level:metric:operations' (e.g., 'job:http_requests_total:rate5m')", metricName))
+		return issues
+	}
+
+	level := parts[0]
+	metric := parts[1]
+
+	// Validate level (aggregation level) - should be label names
+	// Common levels: job, instance, job_instance, cluster, etc.
+	if level == "" {
+		issues = append(issues, fmt.Sprintf("Recording rule '%s' has empty level component. Level should represent aggregation labels (e.g., 'job', 'instance')", metricName))
+	}
+
+	// Validate metric name component
+	if metric == "" {
+		issues = append(issues, fmt.Sprintf("Recording rule '%s' has empty metric component", metricName))
+	}
+
+	// The metric component should preserve the original metric name
+	// Check if it's using snake_case
+	hasUppercase := false
+	for _, char := range metric {
+		if char >= 'A' && char <= 'Z' {
+			hasUppercase = true
+			break
+		}
+	}
+	if hasUppercase {
+		issues = append(issues, fmt.Sprintf("Recording rule '%s' metric component should use snake_case, not camelCase", metricName))
+	}
+
+	// If there's an operations component, validate it
+	if len(parts) >= 3 {
+		operations := parts[2]
+		if operations == "" {
+			issues = append(issues, fmt.Sprintf("Recording rule '%s' has empty operations component. Operations should describe transformations (e.g., 'rate5m', 'sum')", metricName))
+		}
+
+		// Operations should describe what was done to the metric
+		// Common patterns: rate5m, sum, avg, etc.
+		// Should not contain spaces or special characters other than underscores
+		validOperationsRegex := regexp.MustCompile(`^[a-z0-9_]+$`)
+		if !validOperationsRegex.MatchString(operations) {
+			issues = append(issues, fmt.Sprintf("Recording rule '%s' operations component should only contain lowercase letters, digits, and underscores", metricName))
+		}
+	}
+
+	// Validate that _total suffix is stripped when using rate() or irate()
+	// This is a soft recommendation - we check if the metric ends with _total and operations suggest rate
+	if strings.Contains(metric, "_total") && len(parts) >= 3 {
+		operations := parts[2]
+		if strings.Contains(operations, "rate") || strings.Contains(operations, "irate") {
+			issues = append(issues, fmt.Sprintf("Recording rule '%s' should strip '_total' suffix from counter metrics when using rate() or irate() (expected: '%s:%s:%s')",
+				metricName, level, strings.TrimSuffix(metric, "_total"), parts[2]))
 		}
 	}
 
