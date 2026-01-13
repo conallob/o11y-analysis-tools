@@ -228,6 +228,7 @@ func formatPromQLMultiline(expr string) string {
 	// 2. Each operand on its own line(s)
 	// 3. Binary operators indented by 2 spaces on their own line
 	// 4. Nested expressions properly indented
+	// 5. Remove redundant aggregation clauses from left operand when both operands have the same clause
 
 	// First, try to split by binary operators
 	binaryOps := []string{" / ", " * ", " + ", " - ", " % ", " ^ "}
@@ -236,9 +237,20 @@ func formatPromQLMultiline(expr string) string {
 		if strings.Contains(expr, op) {
 			parts := splitByBinaryOperator(expr, op)
 			if len(parts) == 2 {
+				leftStr := strings.TrimSpace(parts[0])
+				rightStr := strings.TrimSpace(parts[1])
+
+				// Check if both operands have the same aggregation clause
+				leftAgg := extractTrailingAggregation(leftStr)
+				rightAgg := extractTrailingAggregation(rightStr)
+
+				// If both have the same aggregation (and it's not 'without'), omit from left
+				// Exception: 'without' needs to be explicit on both sides
+				omitLeftAggregation := leftAgg != "" && leftAgg == rightAgg && !strings.Contains(leftAgg, "without")
+
 				// Format each operand
-				left := formatOperand(strings.TrimSpace(parts[0]), 0)
-				right := formatOperand(strings.TrimSpace(parts[1]), 0)
+				left := formatOperand(leftStr, 0, omitLeftAggregation)
+				right := formatOperand(rightStr, 0, false)
 
 				// Combine with indented operator
 				return left + "\n  " + strings.TrimSpace(op) + "\n" + right
@@ -247,7 +259,7 @@ func formatPromQLMultiline(expr string) string {
 	}
 
 	// If no binary operators, format as a single operand
-	return formatOperand(expr, 0)
+	return formatOperand(expr, 0, false)
 }
 
 // splitByBinaryOperator splits expression by a binary operator, respecting parentheses
@@ -293,7 +305,8 @@ func splitByBinaryOperator(expr, op string) []string {
 }
 
 // formatOperand formats a single operand (which may be an aggregation with nested expressions)
-func formatOperand(expr string, baseIndent int) string {
+// If omitAggregation is true, any trailing aggregation clause (by/without) will be omitted
+func formatOperand(expr string, baseIndent int, omitAggregation bool) string {
 	expr = strings.TrimSpace(expr)
 
 	// Check if this is an aggregation with prefix style: sum by (labels) (expr)
@@ -321,6 +334,12 @@ func formatOperand(expr string, baseIndent int) string {
 			indent := strings.Repeat(" ", baseIndent+2)
 			formattedInner := indent + innerExpr
 
+			// If omitAggregation is true, format without the by/without clause
+			if omitAggregation {
+				return fmt.Sprintf("%s (\n%s\n%s)",
+					aggFunc, formattedInner, strings.Repeat(" ", baseIndent))
+			}
+
 			return fmt.Sprintf("%s %s %s (\n%s\n%s)",
 				aggFunc, byOrWithout, labels, formattedInner, strings.Repeat(" ", baseIndent))
 		}
@@ -344,6 +363,12 @@ func formatOperand(expr string, baseIndent int) string {
 			// Format the inner expression with indentation
 			indent := strings.Repeat(" ", baseIndent+2)
 			formattedInner := indent + innerExpr
+
+			// If omitAggregation is true, format without the by/without clause
+			if omitAggregation {
+				return fmt.Sprintf("%s (\n%s\n%s)",
+					aggFunc, formattedInner, strings.Repeat(" ", baseIndent))
+			}
 
 			return fmt.Sprintf("%s %s %s (\n%s\n%s)",
 				aggFunc, byOrWithout, labels, formattedInner, strings.Repeat(" ", baseIndent))

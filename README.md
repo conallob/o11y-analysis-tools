@@ -56,7 +56,7 @@ expr: sum(rate(http_requests_total{job="api",status=~"5.."}[5m])) by (instance) 
 After:
 ```yaml
 expr: |
-  sum by (instance) (
+  sum (
     rate(http_requests_total{job="api",status=~"5.."}[5m])
   )
     /
@@ -64,6 +64,8 @@ expr: |
     rate(http_requests_total{job="api"}[5m])
   )
 ```
+
+Note: The formatter automatically removes redundant aggregation clauses from the left operand when both operands share the same `by` clause, following PromQL best practices where only the final operand needs the aggregation.
 
 ### 2. label-check - Label Standards Enforcement
 

@@ -53,9 +53,9 @@ func TestFormatPromQLMultiline(t *testing.T) {
 		expected string
 	}{
 		{
-			name:  "README example - division with aggregations",
+			name:  "README example - division with aggregations (optimized)",
 			input: `sum(rate(http_requests_total{job="api",status=~"5.."}[5m])) by (instance) / sum(rate(http_requests_total{job="api"}[5m])) by (instance)`,
-			expected: `sum by (instance) (
+			expected: `sum (
   rate(http_requests_total{job="api",status=~"5.."}[5m])
 )
   /
@@ -80,13 +80,35 @@ sum (
 			expected: `up{job="test"}`,
 		},
 		{
-			name:  "multiplication with aggregations",
+			name:  "multiplication with aggregations (optimized)",
 			input: `avg(metric1) by (pod) * count(metric2) by (pod)`,
-			expected: `avg by (pod) (
+			expected: `avg (
   metric1
 )
   *
 count by (pod) (
+  metric2
+)`,
+		},
+		{
+			name:  "without clause - not optimized (both sides need labels)",
+			input: `sum(metric1) without (instance) * sum(metric2) without (instance)`,
+			expected: `sum without (instance) (
+  metric1
+)
+  *
+sum without (instance) (
+  metric2
+)`,
+		},
+		{
+			name:  "different aggregation clauses - not optimized",
+			input: `sum(metric1) by (pod) / sum(metric2) by (instance)`,
+			expected: `sum by (pod) (
+  metric1
+)
+  /
+sum by (instance) (
   metric2
 )`,
 		},
