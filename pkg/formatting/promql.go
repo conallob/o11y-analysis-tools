@@ -942,6 +942,14 @@ func checkRecordingRuleNaming(metricName string) []string {
 		if !validOperationsRegex.MatchString(operations) {
 			issues = append(issues, fmt.Sprintf("Recording rule '%s' operations component should only contain lowercase letters, digits, and underscores", metricName))
 		}
+
+		// Check for ambiguous operation suffixes that should be avoided
+		if operations == "value" {
+			issues = append(issues, fmt.Sprintf("Recording rule '%s' should not use 'value' as operations component (discouraged for being ambiguous and redundant)", metricName))
+		}
+		if operations == "avg" {
+			issues = append(issues, fmt.Sprintf("Recording rule '%s' should not use 'avg' alone (discouraged for being ambiguous - specify time window, e.g., 'avg5m')", metricName))
+		}
 	}
 
 	// Validate that _total suffix is stripped when using rate() or irate()

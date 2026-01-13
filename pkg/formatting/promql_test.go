@@ -1454,6 +1454,23 @@ func TestCheckRecordingRuleNaming(t *testing.T) {
 			metricName:  "job:http_requests:rate5m_sum",
 			expectIssue: false,
 		},
+		{
+			name:        "recording rule with 'value' suffix (invalid)",
+			metricName:  "job:http_requests_total:value",
+			expectIssue: true,
+			issueText:   "discouraged for being ambiguous",
+		},
+		{
+			name:        "recording rule with 'avg' without time window (invalid)",
+			metricName:  "job:cpu_usage:avg",
+			expectIssue: true,
+			issueText:   "discouraged for being ambiguous",
+		},
+		{
+			name:        "recording rule with 'avg5m' (valid)",
+			metricName:  "job:cpu_usage:avg5m",
+			expectIssue: false,
+		},
 	}
 
 	for _, tt := range tests {
