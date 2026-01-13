@@ -46,6 +46,63 @@ func TestShouldBeMultiline(t *testing.T) {
 	}
 }
 
+func TestFormatPromQLMultiline(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:  "README example - division with aggregations",
+			input: `sum(rate(http_requests_total{job="api",status=~"5.."}[5m])) by (instance) / sum(rate(http_requests_total{job="api"}[5m])) by (instance)`,
+			expected: `sum by (instance) (
+  rate(http_requests_total{job="api",status=~"5.."}[5m])
+)
+  /
+sum by (instance) (
+  rate(http_requests_total{job="api"}[5m])
+)`,
+		},
+		{
+			name:  "simple division",
+			input: `sum(a) / sum(b)`,
+			expected: `sum (
+  a
+)
+  /
+sum (
+  b
+)`,
+		},
+		{
+			name:     "single operand - no formatting",
+			input:    `up{job="test"}`,
+			expected: `up{job="test"}`,
+		},
+		{
+			name:  "multiplication with aggregations",
+			input: `avg(metric1) by (pod) * count(metric2) by (pod)`,
+			expected: `avg by (pod) (
+  metric1
+)
+  *
+count by (pod) (
+  metric2
+)`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatPromQLMultiline(tt.input)
+			if result != tt.expected {
+				t.Errorf("formatPromQLMultiline() output mismatch.\nInput:\n%s\n\nExpected:\n%s\n\nGot:\n%s",
+					tt.input, tt.expected, result)
+			}
+		})
+	}
+}
+
 func TestShouldBeMultilineDisabled(t *testing.T) {
 	// Test that line length checking can be disabled
 	longExpr := `sum(rate(http_requests_total{job="api",status=~"5.."}[5m])) by (instance) / sum(rate(http_requests_total{job="api"}[5m])) by (instance)`
@@ -85,7 +142,7 @@ func TestCheckAndFormatPromQL(t *testing.T) {
 			name:          "long single-line expression",
 			input:         `expr: sum(rate(http_requests_total{job="api",status=~"5.."}[5m])) by (instance) / sum(rate(http_requests_total{job="api"}[5m])) by (instance)`,
 			expectIssues:  true,
-			expectChanged: false, // Note: formatting is detected but complex multiline split not yet implemented
+			expectChanged: true, // Now formatting should work!
 		},
 		{
 			name:          "short expression",

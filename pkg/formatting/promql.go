@@ -223,61 +223,155 @@ func shouldBeMultiline(expr string, disableLineLength bool) bool {
 
 // formatPromQLMultiline formats a PromQL expression with proper multiline formatting
 func formatPromQLMultiline(expr string) string {
-	// Basic formatting rules:
-	// 1. Put aggregation operators on separate lines
-	// 2. Indent nested expressions
-	// 3. Break long lines at logical operators
+	// Formatting rules:
+	// 1. Split by binary operators (/, *, +, -, etc.)
+	// 2. Each operand on its own line(s)
+	// 3. Binary operators indented by 2 spaces on their own line
+	// 4. Nested expressions properly indented
 
-	lines := []string{}
-	currentLine := ""
+	// First, try to split by binary operators
+	binaryOps := []string{" / ", " * ", " + ", " - ", " % ", " ^ "}
+
+	for _, op := range binaryOps {
+		if strings.Contains(expr, op) {
+			parts := splitByBinaryOperator(expr, op)
+			if len(parts) == 2 {
+				// Format each operand
+				left := formatOperand(strings.TrimSpace(parts[0]), 0)
+				right := formatOperand(strings.TrimSpace(parts[1]), 0)
+
+				// Combine with indented operator
+				return left + "\n  " + strings.TrimSpace(op) + "\n" + right
+			}
+		}
+	}
+
+	// If no binary operators, format as a single operand
+	return formatOperand(expr, 0)
+}
+
+// splitByBinaryOperator splits expression by a binary operator, respecting parentheses
+func splitByBinaryOperator(expr, op string) []string {
 	depth := 0
+	inQuote := false
+	var quoteChar rune
 
-	// Split by major operators while preserving them
-	parts := splitByOperators(expr)
+	for i := 0; i < len(expr); i++ {
+		ch := rune(expr[i])
 
-	for i, part := range parts {
-		trimmed := strings.TrimSpace(part)
-		if trimmed == "" {
+		// Handle quotes
+		if (ch == '"' || ch == '\'') && (i == 0 || expr[i-1] != '\\') {
+			if !inQuote {
+				inQuote = true
+				quoteChar = ch
+			} else if ch == quoteChar {
+				inQuote = false
+			}
 			continue
 		}
 
-		// Detect opening/closing parentheses to manage depth
-		openCount := strings.Count(trimmed, "(")
-		closeCount := strings.Count(trimmed, ")")
-
-		if i == 0 {
-			currentLine = trimmed
-		} else {
-			// Check if this is an operator
-			if isOperator(trimmed) {
-				lines = append(lines, currentLine)
-				currentLine = trimmed
-			} else {
-				switch {
-				case currentLine != "" && !isOperator(currentLine):
-					currentLine += " " + trimmed
-				case isOperator(currentLine):
-					lines = append(lines, currentLine)
-					currentLine = trimmed
-				default:
-					currentLine = trimmed
-				}
-			}
+		if inQuote {
+			continue
 		}
 
-		depth += openCount - closeCount
+		// Track parentheses depth
+		if ch == '(' {
+			depth++
+		} else if ch == ')' {
+			depth--
+		}
+
+		// Only split at top level (depth 0)
+		if depth == 0 && i+len(op) <= len(expr) {
+			if expr[i:i+len(op)] == op {
+				return []string{expr[:i], expr[i+len(op):]}
+			}
+		}
 	}
 
-	if currentLine != "" {
-		lines = append(lines, currentLine)
+	return []string{expr}
+}
+
+// formatOperand formats a single operand (which may be an aggregation with nested expressions)
+func formatOperand(expr string, baseIndent int) string {
+	expr = strings.TrimSpace(expr)
+
+	// Check if this is an aggregation with prefix style: sum by (labels) (expr)
+	// Pattern: aggregation_func [by/without (labels)] (expr)
+	aggOps := []string{"sum", "avg", "min", "max", "count", "stddev", "stdvar", "topk", "bottomk", "quantile", "count_values"}
+
+	for _, aggOp := range aggOps {
+		// First, check for postfix style: sum(...) by (labels)
+		// This is the most common style we need to reformat to prefix
+		postfixPattern := regexp.MustCompile(`^(` + aggOp + `)\s*(\([^)]+(?:\([^)]*\))*[^)]*\))\s+(by|without)\s*(\([^)]+\))$`)
+		if matches := postfixPattern.FindStringSubmatch(expr); matches != nil {
+			aggFunc := matches[1]
+			innerExpr := matches[2]
+			byOrWithout := matches[3]
+			labels := matches[4]
+
+			// Remove outer parentheses from inner expression
+			innerExpr = strings.TrimSpace(innerExpr)
+			if strings.HasPrefix(innerExpr, "(") && strings.HasSuffix(innerExpr, ")") {
+				innerExpr = innerExpr[1 : len(innerExpr)-1]
+				innerExpr = strings.TrimSpace(innerExpr)
+			}
+
+			// Format the inner expression with indentation
+			indent := strings.Repeat(" ", baseIndent+2)
+			formattedInner := indent + innerExpr
+
+			return fmt.Sprintf("%s %s %s (\n%s\n%s)",
+				aggFunc, byOrWithout, labels, formattedInner, strings.Repeat(" ", baseIndent))
+		}
+
+		// Check for prefix style: sum by (labels) (expr)
+		prefixPattern := regexp.MustCompile(`^(` + aggOp + `)\s+(by|without)\s*(\([^)]+\))\s*(\(.+\))$`)
+		if matches := prefixPattern.FindStringSubmatch(expr); matches != nil {
+			// Already in prefix style, just format with proper indentation
+			aggFunc := matches[1]
+			byOrWithout := matches[2]
+			labels := matches[3]
+			innerExpr := matches[4]
+
+			// Remove outer parentheses from inner expression
+			innerExpr = strings.TrimSpace(innerExpr)
+			if strings.HasPrefix(innerExpr, "(") && strings.HasSuffix(innerExpr, ")") {
+				innerExpr = innerExpr[1 : len(innerExpr)-1]
+				innerExpr = strings.TrimSpace(innerExpr)
+			}
+
+			// Format the inner expression with indentation
+			indent := strings.Repeat(" ", baseIndent+2)
+			formattedInner := indent + innerExpr
+
+			return fmt.Sprintf("%s %s %s (\n%s\n%s)",
+				aggFunc, byOrWithout, labels, formattedInner, strings.Repeat(" ", baseIndent))
+		}
+
+		// Also check for simple aggregation without by/without: sum(expr)
+		simplePattern := regexp.MustCompile(`^(` + aggOp + `)\s*(\(.+\))$`)
+		if matches := simplePattern.FindStringSubmatch(expr); matches != nil {
+			aggFunc := matches[1]
+			innerExpr := matches[2]
+
+			// Remove outer parentheses
+			innerExpr = strings.TrimSpace(innerExpr)
+			if strings.HasPrefix(innerExpr, "(") && strings.HasSuffix(innerExpr, ")") {
+				innerExpr = innerExpr[1 : len(innerExpr)-1]
+				innerExpr = strings.TrimSpace(innerExpr)
+			}
+
+			// Always format with multiline for consistency in binary operations
+			indent := strings.Repeat(" ", baseIndent+2)
+			formattedInner := indent + innerExpr
+			return fmt.Sprintf("%s (\n%s\n%s)",
+				aggFunc, formattedInner, strings.Repeat(" ", baseIndent))
+		}
 	}
 
-	// If we didn't split into multiple lines, return original
-	if len(lines) <= 1 {
-		return expr
-	}
-
-	return strings.Join(lines, "\n")
+	// No special formatting needed
+	return expr
 }
 
 // splitByOperators splits a PromQL expression by major operators
