@@ -223,111 +223,203 @@ func shouldBeMultiline(expr string, disableLineLength bool) bool {
 
 // formatPromQLMultiline formats a PromQL expression with proper multiline formatting
 func formatPromQLMultiline(expr string) string {
-	// Basic formatting rules:
-	// 1. Put aggregation operators on separate lines
-	// 2. Indent nested expressions
-	// 3. Break long lines at logical operators
+	// Formatting rules:
+	// 1. Split by binary operators (/, *, +, -, etc.)
+	// 2. Each operand on its own line(s)
+	// 3. Binary operators indented by 2 spaces on their own line
+	// 4. Nested expressions properly indented
+	// 5. Remove redundant aggregation clauses from left operand when both operands have the same clause
+	// 6. Add on() clause when operands have common label selectors for explicit vector matching
 
-	lines := []string{}
-	currentLine := ""
+	// First, try to split by binary operators
+	binaryOps := []string{" / ", " * ", " + ", " - ", " % ", " ^ "}
+
+	for _, op := range binaryOps {
+		if strings.Contains(expr, op) {
+			parts := splitByBinaryOperator(expr, op)
+			if len(parts) == 2 {
+				leftStr := strings.TrimSpace(parts[0])
+				rightStr := strings.TrimSpace(parts[1])
+
+				// Check if both operands have the same aggregation clause
+				leftAgg := extractTrailingAggregation(leftStr)
+				rightAgg := extractTrailingAggregation(rightStr)
+
+				// If both have the same aggregation (and it's not 'without'), omit from left
+				// Exception: 'without' needs to be explicit on both sides
+				omitLeftAggregation := leftAgg != "" && leftAgg == rightAgg && !strings.Contains(leftAgg, "without")
+
+				// Extract matching labels from aggregation clause if present
+				var matchingLabels []string
+				if rightAgg != "" && strings.Contains(rightAgg, "by") {
+					// Extract labels from by clause: ) by (label1, label2)
+					byRegex := regexp.MustCompile(`by\s*\(([^)]+)\)`)
+					if match := byRegex.FindStringSubmatch(rightAgg); len(match) >= 2 {
+						labelStr := strings.TrimSpace(match[1])
+						labels := strings.Split(labelStr, ",")
+						for _, label := range labels {
+							matchingLabels = append(matchingLabels, strings.TrimSpace(label))
+						}
+					}
+				}
+
+				// Format each operand
+				left := formatOperand(leftStr, 0, omitLeftAggregation)
+				right := formatOperand(rightStr, 0, false)
+
+				// Build operator line with optional on() clause
+				opLine := strings.TrimSpace(op)
+				if len(matchingLabels) > 0 {
+					// Add on() clause for explicit vector matching
+					opLine = opLine + " on (" + strings.Join(matchingLabels, ", ") + ")"
+				}
+
+				// Combine with indented operator
+				return left + "\n  " + opLine + "\n" + right
+			}
+		}
+	}
+
+	// If no binary operators, format as a single operand
+	return formatOperand(expr, 0, false)
+}
+
+// splitByBinaryOperator splits expression by a binary operator, respecting parentheses
+func splitByBinaryOperator(expr, op string) []string {
 	depth := 0
+	inQuote := false
+	var quoteChar rune
 
-	// Split by major operators while preserving them
-	parts := splitByOperators(expr)
+	for i := 0; i < len(expr); i++ {
+		ch := rune(expr[i])
 
-	for i, part := range parts {
-		trimmed := strings.TrimSpace(part)
-		if trimmed == "" {
+		// Handle quotes
+		if (ch == '"' || ch == '\'') && (i == 0 || expr[i-1] != '\\') {
+			if !inQuote {
+				inQuote = true
+				quoteChar = ch
+			} else if ch == quoteChar {
+				inQuote = false
+			}
 			continue
 		}
 
-		// Detect opening/closing parentheses to manage depth
-		openCount := strings.Count(trimmed, "(")
-		closeCount := strings.Count(trimmed, ")")
-
-		if i == 0 {
-			currentLine = trimmed
-		} else {
-			// Check if this is an operator
-			if isOperator(trimmed) {
-				lines = append(lines, currentLine)
-				currentLine = trimmed
-			} else {
-				switch {
-				case currentLine != "" && !isOperator(currentLine):
-					currentLine += " " + trimmed
-				case isOperator(currentLine):
-					lines = append(lines, currentLine)
-					currentLine = trimmed
-				default:
-					currentLine = trimmed
-				}
-			}
+		if inQuote {
+			continue
 		}
 
-		depth += openCount - closeCount
+		// Track parentheses depth
+		switch ch {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		}
+
+		// Only split at top level (depth 0)
+		if depth == 0 && i+len(op) <= len(expr) {
+			if expr[i:i+len(op)] == op {
+				return []string{expr[:i], expr[i+len(op):]}
+			}
+		}
 	}
 
-	if currentLine != "" {
-		lines = append(lines, currentLine)
-	}
-
-	// If we didn't split into multiple lines, return original
-	if len(lines) <= 1 {
-		return expr
-	}
-
-	return strings.Join(lines, "\n")
+	return []string{expr}
 }
 
-// splitByOperators splits a PromQL expression by major operators
-func splitByOperators(expr string) []string {
-	// Split by major operators while keeping them
-	operators := []string{" and ", " or ", " unless ", " by(", " without(", " on(", " ignoring("}
+// formatOperand formats a single operand (which may be an aggregation with nested expressions)
+// If omitAggregation is true, any trailing aggregation clause (by/without) will be omitted
+func formatOperand(expr string, baseIndent int, omitAggregation bool) string {
+	expr = strings.TrimSpace(expr)
 
-	result := []string{expr}
+	// Check if this is an aggregation with prefix style: sum by (labels) (expr)
+	// Pattern: aggregation_func [by/without (labels)] (expr)
+	aggOps := []string{"sum", "avg", "min", "max", "count", "stddev", "stdvar", "topk", "bottomk", "quantile", "count_values"}
 
-	for _, op := range operators {
-		newResult := []string{}
-		for _, part := range result {
-			if strings.Contains(strings.ToLower(part), op) {
-				subparts := splitKeepDelimiter(part, op)
-				newResult = append(newResult, subparts...)
-			} else {
-				newResult = append(newResult, part)
+	for _, aggOp := range aggOps {
+		// First, check for postfix style: sum(...) by (labels)
+		// This is the most common style we need to reformat to prefix
+		postfixPattern := regexp.MustCompile(`^(` + aggOp + `)\s*(\([^)]+(?:\([^)]*\))*[^)]*\))\s+(by|without)\s*(\([^)]+\))$`)
+		if matches := postfixPattern.FindStringSubmatch(expr); matches != nil {
+			aggFunc := matches[1]
+			innerExpr := matches[2]
+			byOrWithout := matches[3]
+			labels := matches[4]
+
+			// Remove outer parentheses from inner expression
+			innerExpr = strings.TrimSpace(innerExpr)
+			if strings.HasPrefix(innerExpr, "(") && strings.HasSuffix(innerExpr, ")") {
+				innerExpr = innerExpr[1 : len(innerExpr)-1]
+				innerExpr = strings.TrimSpace(innerExpr)
 			}
+
+			// Format the inner expression with indentation
+			indent := strings.Repeat(" ", baseIndent+2)
+			formattedInner := indent + innerExpr
+
+			// If omitAggregation is true, format without the by/without clause
+			if omitAggregation {
+				return fmt.Sprintf("%s (\n%s\n%s)",
+					aggFunc, formattedInner, strings.Repeat(" ", baseIndent))
+			}
+
+			return fmt.Sprintf("%s %s %s (\n%s\n%s)",
+				aggFunc, byOrWithout, labels, formattedInner, strings.Repeat(" ", baseIndent))
 		}
-		result = newResult
+
+		// Check for prefix style: sum by (labels) (expr)
+		prefixPattern := regexp.MustCompile(`^(` + aggOp + `)\s+(by|without)\s*(\([^)]+\))\s*(\(.+\))$`)
+		if matches := prefixPattern.FindStringSubmatch(expr); matches != nil {
+			// Already in prefix style, just format with proper indentation
+			aggFunc := matches[1]
+			byOrWithout := matches[2]
+			labels := matches[3]
+			innerExpr := matches[4]
+
+			// Remove outer parentheses from inner expression
+			innerExpr = strings.TrimSpace(innerExpr)
+			if strings.HasPrefix(innerExpr, "(") && strings.HasSuffix(innerExpr, ")") {
+				innerExpr = innerExpr[1 : len(innerExpr)-1]
+				innerExpr = strings.TrimSpace(innerExpr)
+			}
+
+			// Format the inner expression with indentation
+			indent := strings.Repeat(" ", baseIndent+2)
+			formattedInner := indent + innerExpr
+
+			// If omitAggregation is true, format without the by/without clause
+			if omitAggregation {
+				return fmt.Sprintf("%s (\n%s\n%s)",
+					aggFunc, formattedInner, strings.Repeat(" ", baseIndent))
+			}
+
+			return fmt.Sprintf("%s %s %s (\n%s\n%s)",
+				aggFunc, byOrWithout, labels, formattedInner, strings.Repeat(" ", baseIndent))
+		}
+
+		// Also check for simple aggregation without by/without: sum(expr)
+		simplePattern := regexp.MustCompile(`^(` + aggOp + `)\s*(\(.+\))$`)
+		if matches := simplePattern.FindStringSubmatch(expr); matches != nil {
+			aggFunc := matches[1]
+			innerExpr := matches[2]
+
+			// Remove outer parentheses
+			innerExpr = strings.TrimSpace(innerExpr)
+			if strings.HasPrefix(innerExpr, "(") && strings.HasSuffix(innerExpr, ")") {
+				innerExpr = innerExpr[1 : len(innerExpr)-1]
+				innerExpr = strings.TrimSpace(innerExpr)
+			}
+
+			// Always format with multiline for consistency in binary operations
+			indent := strings.Repeat(" ", baseIndent+2)
+			formattedInner := indent + innerExpr
+			return fmt.Sprintf("%s (\n%s\n%s)",
+				aggFunc, formattedInner, strings.Repeat(" ", baseIndent))
+		}
 	}
 
-	return result
-}
-
-// splitKeepDelimiter splits string by delimiter but keeps the delimiter
-func splitKeepDelimiter(s, delim string) []string {
-	parts := strings.Split(strings.ToLower(s), delim)
-	result := []string{}
-
-	// Find actual positions in original string
-	remaining := s
-	for i, part := range parts {
-		if i > 0 {
-			// Add the delimiter
-			result = append(result, strings.TrimSpace(delim))
-		}
-
-		if len(part) > 0 {
-			// Find this part in remaining string (case-insensitive search)
-			idx := strings.Index(strings.ToLower(remaining), part)
-			if idx >= 0 {
-				actual := remaining[idx : idx+len(part)]
-				result = append(result, actual)
-				remaining = remaining[idx+len(part):]
-			}
-		}
-	}
-
-	return result
+	// No special formatting needed
+	return expr
 }
 
 // isOperator checks if a string is an operator
@@ -385,10 +477,22 @@ func checkPrometheusBestPractices(expr string) []string {
 
 		// Check for proper suffixes
 		issues = append(issues, checkMetricSuffixes(metricName)...)
+
+		// Check recording rule naming (if applicable)
+		issues = append(issues, checkRecordingRuleNaming(metricName)...)
 	}
+
+	// Check variable/metric naming conventions
+	issues = append(issues, checkVariableNaming(expr)...)
+
+	// Check label naming conventions
+	issues = append(issues, checkLabelNaming(expr)...)
 
 	// Check for instrumentation best practices
 	issues = append(issues, checkInstrumentationPatterns(expr)...)
+
+	// Check for synthetic metrics without proper label selectors
+	issues = append(issues, checkSyntheticMetrics(expr)...)
 
 	return issues
 }
@@ -575,6 +679,237 @@ func checkInstrumentationPatterns(expr string) []string {
 	if strings.Contains(expr, " / ") && !strings.Contains(expr, " or ") {
 		if !strings.Contains(expr, "!= 0") {
 			issues = append(issues, "Division detected without zero-protection - consider adding '... or 1' or checking for non-zero denominator")
+		}
+	}
+
+	return issues
+}
+
+// checkSyntheticMetrics validates that synthetic metrics have proper label selectors
+func checkSyntheticMetrics(expr string) []string {
+	var issues []string
+
+	// Check for 'up' metric without job label selector
+	// Pattern: match 'up' as a word boundary, optionally followed by label selectors,
+	// then followed by a valid boundary character (bracket, paren, whitespace, comma, or end)
+	upRegex := regexp.MustCompile(`\bup(?:\s*(\{[^}]*\}))?(?:\s*\[|[\)\s,]|$)`)
+	matches := upRegex.FindAllStringSubmatch(expr, -1)
+
+	for _, match := range matches {
+		hasJobLabel := false
+
+		// Check if there's a label selector (captured in match[1])
+		if len(match) > 1 && match[1] != "" {
+			labelSelector := match[1]
+			// Look for job="..." or job=~"..."
+			if regexp.MustCompile(`job\s*=~?`).MatchString(labelSelector) {
+				hasJobLabel = true
+			}
+		}
+
+		if !hasJobLabel {
+			issues = append(issues, "Synthetic metric 'up' should always include a job label selector (e.g., up{job=\"...\"}) to avoid matching multiple jobs")
+		}
+	}
+
+	return issues
+}
+
+// checkVariableNaming validates metric/variable names according to Prometheus naming conventions
+func checkVariableNaming(expr string) []string {
+	var issues []string
+
+	// Extract metric names from the expression
+	metricNames := extractMetricNames(expr)
+
+	for _, metricName := range metricNames {
+		// Skip if it's already checked by checkMetricNamingConventions
+		// This function focuses on additional variable naming rules
+
+		// Check 1: Metric names should match [a-zA-Z_:][a-zA-Z0-9_:]*
+		validMetricRegex := regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
+		if !validMetricRegex.MatchString(metricName) {
+			issues = append(issues, fmt.Sprintf("Metric name '%s' should only contain alphanumeric characters, underscores, and colons, and must not start with a digit", metricName))
+			continue
+		}
+
+		// Check 2: Avoid colons in metric names (reserved for recording rules)
+		// Only check if it's not a recording rule format (level:metric:operations)
+		if strings.Contains(metricName, ":") {
+			// Check if it follows the recording rule format
+			parts := strings.Split(metricName, ":")
+			if len(parts) < 2 {
+				issues = append(issues, fmt.Sprintf("Metric name '%s' should not contain colons unless it's a recording rule (format: level:metric:operations)", metricName))
+			}
+			// If it has colons, we'll validate it with checkRecordingRuleNaming
+		}
+
+		// Check 3: Metric names should use lowercase and underscores (snake_case)
+		hasUppercase := false
+		for _, char := range metricName {
+			if char >= 'A' && char <= 'Z' {
+				hasUppercase = true
+				break
+			}
+		}
+		if hasUppercase {
+			issues = append(issues, fmt.Sprintf("Metric name '%s' should use lowercase with underscores (snake_case), not camelCase or PascalCase", metricName))
+		}
+
+		// Check 4: Don't put metric type in the name
+		metricTypes := []string{"_gauge", "_counter", "_summary", "_histogram"}
+		for _, metricType := range metricTypes {
+			if strings.HasSuffix(metricName, metricType) {
+				issues = append(issues, fmt.Sprintf("Metric name '%s' should not include the metric type (%s) in the name", metricName, metricType))
+			}
+		}
+	}
+
+	return issues
+}
+
+// checkLabelNaming validates label names according to Prometheus naming conventions
+func checkLabelNaming(expr string) []string {
+	var issues []string
+
+	// Extract label names from label selectors {label="value"}
+	labelRegex := regexp.MustCompile(`\{([^}]+)\}`)
+	matches := labelRegex.FindAllStringSubmatch(expr, -1)
+
+	seenLabels := make(map[string]bool)
+
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+
+		labelSelector := match[1]
+		// Parse individual label matchers (label="value", label=~"regex", etc.)
+		labelPairs := strings.Split(labelSelector, ",")
+
+		for _, pair := range labelPairs {
+			pair = strings.TrimSpace(pair)
+			// Extract label name (before = or =~ or != or !~)
+			labelNameRegex := regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*[!=]~?\s*.+)?$`)
+			labelMatch := labelNameRegex.FindStringSubmatch(pair)
+
+			if len(labelMatch) < 2 {
+				continue
+			}
+
+			labelName := labelMatch[1]
+
+			// Skip if we've already checked this label
+			if seenLabels[labelName] {
+				continue
+			}
+			seenLabels[labelName] = true
+
+			// Check 1: Label names should match [a-zA-Z_][a-zA-Z0-9_]*
+			validLabelRegex := regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+			if !validLabelRegex.MatchString(labelName) {
+				issues = append(issues, fmt.Sprintf("Label name '%s' should only contain alphanumeric characters and underscores, and must not start with a digit", labelName))
+				continue
+			}
+
+			// Check 2: Don't use leading underscores (reserved for internal use)
+			if strings.HasPrefix(labelName, "__") {
+				issues = append(issues, fmt.Sprintf("Label name '%s' uses double leading underscores which are reserved for internal Prometheus use", labelName))
+			} else if strings.HasPrefix(labelName, "_") {
+				issues = append(issues, fmt.Sprintf("Label name '%s' should not start with an underscore (reserved for internal use)", labelName))
+			}
+
+			// Check 3: Avoid generic label names that are too common
+			genericLabels := []string{"type"}
+			for _, generic := range genericLabels {
+				if labelName == generic {
+					issues = append(issues, fmt.Sprintf("Label name '%s' is too generic and should be avoided. Consider using a more specific name", labelName))
+				}
+			}
+		}
+	}
+
+	return issues
+}
+
+// checkRecordingRuleNaming validates recording rule names follow the level:metric:operations format
+func checkRecordingRuleNaming(metricName string) []string {
+	var issues []string
+
+	// Recording rules should follow the format: level:metric:operations
+	// Example: job:http_requests_total:rate5m
+
+	// Only validate if the metric name contains colons (indicating it's likely a recording rule)
+	if !strings.Contains(metricName, ":") {
+		return issues
+	}
+
+	parts := strings.Split(metricName, ":")
+
+	// Should have at least 2 parts (level:metric) but typically 3 (level:metric:operations)
+	if len(parts) < 2 {
+		issues = append(issues, fmt.Sprintf("Recording rule '%s' should follow format 'level:metric:operations' (e.g., 'job:http_requests_total:rate5m')", metricName))
+		return issues
+	}
+
+	level := parts[0]
+	metric := parts[1]
+
+	// Validate level (aggregation level) - should be label names
+	// Common levels: job, instance, job_instance, cluster, etc.
+	if level == "" {
+		issues = append(issues, fmt.Sprintf("Recording rule '%s' has empty level component. Level should represent aggregation labels (e.g., 'job', 'instance')", metricName))
+	}
+
+	// Validate metric name component
+	if metric == "" {
+		issues = append(issues, fmt.Sprintf("Recording rule '%s' has empty metric component", metricName))
+	}
+
+	// The metric component should preserve the original metric name
+	// Check if it's using snake_case
+	hasUppercase := false
+	for _, char := range metric {
+		if char >= 'A' && char <= 'Z' {
+			hasUppercase = true
+			break
+		}
+	}
+	if hasUppercase {
+		issues = append(issues, fmt.Sprintf("Recording rule '%s' metric component should use snake_case, not camelCase", metricName))
+	}
+
+	// If there's an operations component, validate it
+	if len(parts) >= 3 {
+		operations := parts[2]
+		if operations == "" {
+			issues = append(issues, fmt.Sprintf("Recording rule '%s' has empty operations component. Operations should describe transformations (e.g., 'rate5m', 'sum')", metricName))
+		}
+
+		// Operations should describe what was done to the metric
+		// Common patterns: rate5m, sum, avg, etc.
+		// Should not contain spaces or special characters other than underscores
+		validOperationsRegex := regexp.MustCompile(`^[a-z0-9_]+$`)
+		if !validOperationsRegex.MatchString(operations) {
+			issues = append(issues, fmt.Sprintf("Recording rule '%s' operations component should only contain lowercase letters, digits, and underscores", metricName))
+		}
+
+		// Check for ambiguous operation suffixes that should be avoided
+		if operations == "value" {
+			issues = append(issues, fmt.Sprintf("Recording rule '%s' should not use 'value' as operations component (discouraged for being ambiguous and redundant)", metricName))
+		}
+		if operations == "avg" {
+			issues = append(issues, fmt.Sprintf("Recording rule '%s' should not use 'avg' alone (discouraged for being ambiguous - specify time window, e.g., 'avg5m')", metricName))
+		}
+	}
+
+	// Validate that _total suffix is stripped when using rate() or irate()
+	// This is a soft recommendation - we check if the metric ends with _total and operations suggest rate
+	if strings.Contains(metric, "_total") && len(parts) >= 3 {
+		operations := parts[2]
+		if strings.Contains(operations, "rate") || strings.Contains(operations, "irate") {
+			issues = append(issues, fmt.Sprintf("Recording rule '%s' should strip '_total' suffix from counter metrics when using rate() or irate() (expected: '%s:%s:%s')",
+				metricName, level, strings.TrimSuffix(metric, "_total"), parts[2]))
 		}
 	}
 

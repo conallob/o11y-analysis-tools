@@ -46,6 +46,85 @@ func TestShouldBeMultiline(t *testing.T) {
 	}
 }
 
+func TestFormatPromQLMultiline(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:  "README example - division with aggregations (optimized)",
+			input: `sum(rate(http_requests_total{job="api",status=~"5.."}[5m])) by (instance) / sum(rate(http_requests_total{job="api"}[5m])) by (instance)`,
+			expected: `sum (
+  rate(http_requests_total{job="api",status=~"5.."}[5m])
+)
+  / on (instance)
+sum by (instance) (
+  rate(http_requests_total{job="api"}[5m])
+)`,
+		},
+		{
+			name:  "simple division",
+			input: `sum(a) / sum(b)`,
+			expected: `sum (
+  a
+)
+  /
+sum (
+  b
+)`,
+		},
+		{
+			name:     "single operand - no formatting",
+			input:    `up{job="test"}`,
+			expected: `up{job="test"}`,
+		},
+		{
+			name:  "multiplication with aggregations (optimized)",
+			input: `avg(metric1) by (pod) * count(metric2) by (pod)`,
+			expected: `avg (
+  metric1
+)
+  * on (pod)
+count by (pod) (
+  metric2
+)`,
+		},
+		{
+			name:  "without clause - not optimized (both sides need labels)",
+			input: `sum(metric1) without (instance) * sum(metric2) without (instance)`,
+			expected: `sum without (instance) (
+  metric1
+)
+  *
+sum without (instance) (
+  metric2
+)`,
+		},
+		{
+			name:  "different aggregation clauses - not optimized but with on() clause",
+			input: `sum(metric1) by (pod) / sum(metric2) by (instance)`,
+			expected: `sum by (pod) (
+  metric1
+)
+  / on (instance)
+sum by (instance) (
+  metric2
+)`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatPromQLMultiline(tt.input)
+			if result != tt.expected {
+				t.Errorf("formatPromQLMultiline() output mismatch.\nInput:\n%s\n\nExpected:\n%s\n\nGot:\n%s",
+					tt.input, tt.expected, result)
+			}
+		})
+	}
+}
+
 func TestShouldBeMultilineDisabled(t *testing.T) {
 	// Test that line length checking can be disabled
 	longExpr := `sum(rate(http_requests_total{job="api",status=~"5.."}[5m])) by (instance) / sum(rate(http_requests_total{job="api"}[5m])) by (instance)`
@@ -85,7 +164,7 @@ func TestCheckAndFormatPromQL(t *testing.T) {
 			name:          "long single-line expression",
 			input:         `expr: sum(rate(http_requests_total{job="api",status=~"5.."}[5m])) by (instance) / sum(rate(http_requests_total{job="api"}[5m])) by (instance)`,
 			expectIssues:  true,
-			expectChanged: false, // Note: formatting is detected but complex multiline split not yet implemented
+			expectChanged: true, // Now formatting should work!
 		},
 		{
 			name:          "short expression",
@@ -361,6 +440,72 @@ func TestCheckInstrumentationPatterns(t *testing.T) {
 			issues := checkInstrumentationPatterns(tt.expr)
 			if tt.expectIssue && len(issues) == 0 {
 				t.Errorf("Expected %s issue but got none", tt.issueType)
+			}
+			if !tt.expectIssue && len(issues) > 0 {
+				t.Errorf("Expected no issues but got: %v", issues)
+			}
+		})
+	}
+}
+
+func TestCheckSyntheticMetrics(t *testing.T) {
+	tests := []struct {
+		name        string
+		expr        string
+		expectIssue bool
+	}{
+		{
+			name:        "up without any label selector",
+			expr:        "up",
+			expectIssue: true,
+		},
+		{
+			name:        "up with job label selector",
+			expr:        `up{job="api"}`,
+			expectIssue: false,
+		},
+		{
+			name:        "up with job and instance labels",
+			expr:        `up{job="api",instance="localhost:9090"}`,
+			expectIssue: false,
+		},
+		{
+			name:        "up with only instance label (missing job)",
+			expr:        `up{instance="localhost:9090"}`,
+			expectIssue: true,
+		},
+		{
+			name:        "up with job regex matcher",
+			expr:        `up{job=~"api.*"}`,
+			expectIssue: false,
+		},
+		{
+			name:        "up in aggregation without job",
+			expr:        "sum(up) by (instance)",
+			expectIssue: true,
+		},
+		{
+			name:        "up in aggregation with job",
+			expr:        `sum(up{job="api"}) by (instance)`,
+			expectIssue: false,
+		},
+		{
+			name:        "up with range selector but no job",
+			expr:        "up[5m]",
+			expectIssue: true,
+		},
+		{
+			name:        "up with job and range selector",
+			expr:        `up{job="api"}[5m]`,
+			expectIssue: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issues := checkSyntheticMetrics(tt.expr)
+			if tt.expectIssue && len(issues) == 0 {
+				t.Errorf("Expected issue but got none")
 			}
 			if !tt.expectIssue && len(issues) > 0 {
 				t.Errorf("Expected no issues but got: %v", issues)
@@ -1061,5 +1206,297 @@ func TestCheckMetricContinuityInvalidJSON(t *testing.T) {
 	_, err := checkMetricContinuity(server.URL, "test_metric")
 	if err == nil {
 		t.Error("Expected error for invalid JSON but got none")
+	}
+}
+
+func TestCheckVariableNaming(t *testing.T) {
+	tests := []struct {
+		name        string
+		expr        string
+		expectIssue bool
+		issueText   string
+	}{
+		{
+			name:        "valid snake_case metric",
+			expr:        "http_requests_total",
+			expectIssue: false,
+		},
+		{
+			name:        "metric with camelCase (invalid)",
+			expr:        "httpRequestsTotal",
+			expectIssue: true,
+			issueText:   "should use lowercase with underscores (snake_case)",
+		},
+		{
+			name:        "metric with PascalCase (invalid)",
+			expr:        "HttpRequestsTotal",
+			expectIssue: true,
+			issueText:   "should use lowercase with underscores (snake_case)",
+		},
+		{
+			name:        "metric with _gauge suffix (invalid)",
+			expr:        "memory_usage_gauge",
+			expectIssue: true,
+			issueText:   "should not include the metric type (_gauge)",
+		},
+		{
+			name:        "metric with _counter suffix (invalid)",
+			expr:        "request_count_counter",
+			expectIssue: true,
+			issueText:   "should not include the metric type (_counter)",
+		},
+		{
+			name:        "metric with _histogram suffix (invalid)",
+			expr:        "latency_histogram",
+			expectIssue: true,
+			issueText:   "should not include the metric type (_histogram)",
+		},
+		{
+			name:        "recording rule with colons (valid)",
+			expr:        "job:http_requests_total:rate5m",
+			expectIssue: false,
+		},
+		{
+			name:        "valid metric in complex expression",
+			expr:        "rate(http_requests_total[5m])",
+			expectIssue: false,
+		},
+		{
+			name:        "camelCase in complex expression",
+			expr:        "sum(httpRequests) by (job)",
+			expectIssue: true,
+			issueText:   "should use lowercase with underscores (snake_case)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issues := checkVariableNaming(tt.expr)
+
+			if tt.expectIssue {
+				if len(issues) == 0 {
+					t.Errorf("Expected issue but got none")
+				} else if !strings.Contains(issues[0], tt.issueText) {
+					t.Errorf("Expected issue to contain '%s' but got '%s'", tt.issueText, issues[0])
+				}
+			} else {
+				if len(issues) > 0 {
+					t.Errorf("Expected no issues but got: %v", issues)
+				}
+			}
+		})
+	}
+}
+
+func TestCheckLabelNaming(t *testing.T) {
+	tests := []struct {
+		name        string
+		expr        string
+		expectIssue bool
+		issueText   string
+	}{
+		{
+			name:        "valid label names",
+			expr:        `http_requests_total{job="api",instance="localhost:9090"}`,
+			expectIssue: false,
+		},
+		{
+			name:        "label with leading underscore (invalid)",
+			expr:        `http_requests_total{_internal="true"}`,
+			expectIssue: true,
+			issueText:   "should not start with an underscore",
+		},
+		{
+			name:        "label with double leading underscore (reserved)",
+			expr:        `http_requests_total{__name__="test"}`,
+			expectIssue: true,
+			issueText:   "reserved for internal Prometheus use",
+		},
+		{
+			name:        "generic label name 'type' (discouraged)",
+			expr:        `http_requests_total{type="api"}`,
+			expectIssue: true,
+			issueText:   "too generic and should be avoided",
+		},
+		{
+			name:        "valid label with underscores",
+			expr:        `http_requests_total{job_name="api_server"}`,
+			expectIssue: false,
+		},
+		{
+			name:        "multiple valid labels",
+			expr:        `http_requests_total{job="api",instance="localhost",status="200"}`,
+			expectIssue: false,
+		},
+		{
+			name:        "label with regex matcher",
+			expr:        `http_requests_total{job=~"api.*",instance="localhost"}`,
+			expectIssue: false,
+		},
+		{
+			name:        "label with negative matcher",
+			expr:        `http_requests_total{job!="batch",instance!~"test.*"}`,
+			expectIssue: false,
+		},
+		{
+			name:        "no labels in expression",
+			expr:        "http_requests_total",
+			expectIssue: false,
+		},
+		{
+			name:        "label in aggregation",
+			expr:        `sum(http_requests_total{job="api"}) by (instance)`,
+			expectIssue: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issues := checkLabelNaming(tt.expr)
+
+			if tt.expectIssue {
+				if len(issues) == 0 {
+					t.Errorf("Expected issue but got none")
+				} else if !strings.Contains(issues[0], tt.issueText) {
+					t.Errorf("Expected issue to contain '%s' but got '%s'", tt.issueText, issues[0])
+				}
+			} else {
+				if len(issues) > 0 {
+					t.Errorf("Expected no issues but got: %v", issues)
+				}
+			}
+		})
+	}
+}
+
+func TestCheckRecordingRuleNaming(t *testing.T) {
+	tests := []struct {
+		name        string
+		metricName  string
+		expectIssue bool
+		issueText   string
+	}{
+		{
+			name:        "valid recording rule with 3 components (no _total suffix issue)",
+			metricName:  "job:http_requests:sum",
+			expectIssue: false,
+		},
+		{
+			name:        "valid recording rule with 2 components",
+			metricName:  "job:http_requests_total",
+			expectIssue: false,
+		},
+		{
+			name:        "recording rule with empty level",
+			metricName:  ":http_requests_total:rate5m",
+			expectIssue: true,
+			issueText:   "empty level component",
+		},
+		{
+			name:        "recording rule with empty metric",
+			metricName:  "job::rate5m",
+			expectIssue: true,
+			issueText:   "empty metric component",
+		},
+		{
+			name:        "recording rule with empty operations",
+			metricName:  "job:http_requests_total:",
+			expectIssue: true,
+			issueText:   "empty operations component",
+		},
+		{
+			name:        "recording rule with camelCase metric (invalid)",
+			metricName:  "job:httpRequestsTotal:rate5m",
+			expectIssue: true,
+			issueText:   "should use snake_case, not camelCase",
+		},
+		{
+			name:        "recording rule with uppercase operations (invalid)",
+			metricName:  "job:http_requests_total:Rate5m",
+			expectIssue: true,
+			issueText:   "should only contain lowercase letters",
+		},
+		{
+			name:        "recording rule not stripping _total with rate (warning)",
+			metricName:  "job:http_requests_total:rate5m",
+			expectIssue: true,
+			issueText:   "should strip '_total' suffix",
+		},
+		{
+			name:        "recording rule properly stripped _total",
+			metricName:  "job:http_requests:rate5m",
+			expectIssue: false,
+		},
+		{
+			name:        "recording rule with irate not stripping _total",
+			metricName:  "job:http_requests_total:irate1m",
+			expectIssue: true,
+			issueText:   "should strip '_total' suffix",
+		},
+		{
+			name:        "regular metric without colons (not a recording rule)",
+			metricName:  "http_requests_total",
+			expectIssue: false,
+		},
+		{
+			name:        "recording rule with single colon (invalid format)",
+			metricName:  "job:",
+			expectIssue: true,
+			issueText:   "empty metric component",
+		},
+		{
+			name:        "recording rule with compound level",
+			metricName:  "job_instance:http_requests:rate5m",
+			expectIssue: false,
+		},
+		{
+			name:        "recording rule with multiple operations",
+			metricName:  "job:http_requests:rate5m_sum",
+			expectIssue: false,
+		},
+		{
+			name:        "recording rule with 'value' suffix (invalid)",
+			metricName:  "job:http_requests_total:value",
+			expectIssue: true,
+			issueText:   "discouraged for being ambiguous",
+		},
+		{
+			name:        "recording rule with 'avg' without time window (invalid)",
+			metricName:  "job:cpu_usage:avg",
+			expectIssue: true,
+			issueText:   "discouraged for being ambiguous",
+		},
+		{
+			name:        "recording rule with 'avg5m' (valid)",
+			metricName:  "job:cpu_usage:avg5m",
+			expectIssue: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issues := checkRecordingRuleNaming(tt.metricName)
+
+			if tt.expectIssue {
+				if len(issues) == 0 {
+					t.Errorf("Expected issue but got none")
+				} else {
+					found := false
+					for _, issue := range issues {
+						if strings.Contains(issue, tt.issueText) {
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Errorf("Expected issue to contain '%s' but got: %v", tt.issueText, issues)
+					}
+				}
+			} else {
+				if len(issues) > 0 {
+					t.Errorf("Expected no issues but got: %v", issues)
+				}
+			}
+		})
 	}
 }
