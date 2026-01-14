@@ -309,9 +309,10 @@ func splitByBinaryOperator(expr, op string) []string {
 		}
 
 		// Track parentheses depth
-		if ch == '(' {
+		switch ch {
+		case '(':
 			depth++
-		} else if ch == ')' {
+		case ')':
 			depth--
 		}
 
@@ -419,56 +420,6 @@ func formatOperand(expr string, baseIndent int, omitAggregation bool) string {
 
 	// No special formatting needed
 	return expr
-}
-
-// splitByOperators splits a PromQL expression by major operators
-func splitByOperators(expr string) []string {
-	// Split by major operators while keeping them
-	operators := []string{" and ", " or ", " unless ", " by(", " without(", " on(", " ignoring("}
-
-	result := []string{expr}
-
-	for _, op := range operators {
-		newResult := []string{}
-		for _, part := range result {
-			if strings.Contains(strings.ToLower(part), op) {
-				subparts := splitKeepDelimiter(part, op)
-				newResult = append(newResult, subparts...)
-			} else {
-				newResult = append(newResult, part)
-			}
-		}
-		result = newResult
-	}
-
-	return result
-}
-
-// splitKeepDelimiter splits string by delimiter but keeps the delimiter
-func splitKeepDelimiter(s, delim string) []string {
-	parts := strings.Split(strings.ToLower(s), delim)
-	result := []string{}
-
-	// Find actual positions in original string
-	remaining := s
-	for i, part := range parts {
-		if i > 0 {
-			// Add the delimiter
-			result = append(result, strings.TrimSpace(delim))
-		}
-
-		if len(part) > 0 {
-			// Find this part in remaining string (case-insensitive search)
-			idx := strings.Index(strings.ToLower(remaining), part)
-			if idx >= 0 {
-				actual := remaining[idx : idx+len(part)]
-				result = append(result, actual)
-				remaining = remaining[idx+len(part):]
-			}
-		}
-	}
-
-	return result
 }
 
 // isOperator checks if a string is an operator
@@ -1009,68 +960,6 @@ func checkRedundantAggregations(expr string) []string {
 	}
 
 	return issues
-}
-
-// extractLabelSelectors extracts label selectors from a PromQL expression
-// Returns a map of label names to their values (or patterns for regex matchers)
-func extractLabelSelectors(expr string) map[string]string {
-	labels := make(map[string]string)
-
-	// Match label selectors: {label="value", label2=~"pattern", ...}
-	selectorRegex := regexp.MustCompile(`\{([^}]+)\}`)
-	matches := selectorRegex.FindAllStringSubmatch(expr, -1)
-
-	for _, match := range matches {
-		if len(match) < 2 {
-			continue
-		}
-
-		// Parse individual label matchers within the braces
-		labelPairs := match[1]
-		// Split by comma, but be careful with quoted strings
-		pairRegex := regexp.MustCompile(`(\w+)\s*(=~?|!=~?)\s*"([^"]*)"`)
-		pairMatches := pairRegex.FindAllStringSubmatch(labelPairs, -1)
-
-		for _, pair := range pairMatches {
-			if len(pair) >= 4 {
-				labelName := pair[1]
-				operator := pair[2]
-				value := pair[3]
-
-				// Only track exact matches (=) for common label detection
-				if operator == "=" {
-					labels[labelName] = value
-				}
-			}
-		}
-	}
-
-	return labels
-}
-
-// findCommonLabels finds labels that have the same value in both operands
-func findCommonLabels(leftLabels, rightLabels map[string]string) []string {
-	common := []string{}
-
-	for label, leftVal := range leftLabels {
-		if rightVal, exists := rightLabels[label]; exists && leftVal == rightVal {
-			common = append(common, label)
-		}
-	}
-
-	// Sort for consistent output
-	if len(common) > 0 {
-		// Simple bubble sort since list is usually small
-		for i := 0; i < len(common); i++ {
-			for j := i + 1; j < len(common); j++ {
-				if common[i] > common[j] {
-					common[i], common[j] = common[j], common[i]
-				}
-			}
-		}
-	}
-
-	return common
 }
 
 // extractTrailingAggregation extracts the trailing by/without clause from an expression
