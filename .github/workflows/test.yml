@@ -34,6 +34,9 @@ jobs:
           go build -o bin/ ./cmd/promql-fmt
           go build -o bin/ ./cmd/label-check
           go build -o bin/ ./cmd/alert-hysteresis
+          go build -o bin/ ./cmd/autogen-promql-tests
+          go build -o bin/ ./cmd/e2e-alertmanager-test
+          go build -o bin/ ./cmd/stale-alerts-analyzer
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.go == '1.21'
@@ -74,30 +77,13 @@ jobs:
           version: "~> v2"
           args: check
 
-  dockerfile-check:
+  goreleaser-consistency:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check Dockerfile consistency
+      - name: Validate GoReleaser consistency
         run: |
-          echo "Checking that each cmd/ subdirectory has a corresponding Dockerfile..."
-          missing=0
-          for dir in cmd/*/; do
-            tool=$(basename "$dir")
-            dockerfile="Dockerfile.$tool"
-            if [ ! -f "$dockerfile" ]; then
-              echo "ERROR: Missing $dockerfile for cmd/$tool/"
-              missing=$((missing + 1))
-            else
-              echo "✓ Found $dockerfile for cmd/$tool/"
-            fi
-          done
-          if [ $missing -gt 0 ]; then
-            echo ""
-            echo "ERROR: $missing Dockerfile(s) missing. Each tool under cmd/ must have a corresponding Dockerfile.<tool-name>"
-            exit 1
-          fi
-          echo ""
-          echo "✓ All cmd/ tools have corresponding Dockerfiles"
+          chmod +x scripts/validate-goreleaser-consistency.sh
+          ./scripts/validate-goreleaser-consistency.sh
