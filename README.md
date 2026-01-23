@@ -166,6 +166,194 @@ Alert: HighMemoryUsage
 Found 1 alerts that need hysteresis adjustment
 ```
 
+### 4. autogen-promql-tests - PromQL Test Case Generator
+
+Automatically generates unit test cases for PromQL expressions to ensure recording rules and metrics calculations work as expected.
+
+**Features:**
+- Generates test cases from existing PromQL recording rules
+- Creates baseline test fixtures based on current metric values
+- Supports custom test scenarios and edge cases
+- Integration with Prometheus unit testing framework
+
+**Usage:**
+
+```bash
+# Generate tests for recording rules
+autogen-promql-tests --rules=./recording-rules.yml --output=./tests/
+
+# Generate tests with custom scenarios
+autogen-promql-tests --rules=./rules.yml \
+  --scenarios=edge-cases \
+  --output=./tests/
+
+# Validate generated tests
+autogen-promql-tests --rules=./rules.yml --validate
+```
+
+**Example Output:**
+
+```yaml
+# Generated test file: recording_rules_test.yml
+rule_files:
+  - recording-rules.yml
+
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'http_requests_total{job="api",status="200"}'
+        values: '0+10x10'
+      - series: 'http_requests_total{job="api",status="500"}'
+        values: '0+1x10'
+    promql_expr_test:
+      - expr: job:http_requests:rate5m
+        eval_time: 5m
+        exp_samples:
+          - labels: '{job="api"}'
+            value: 0.183
+```
+
+### 5. e2e-alertmanager-test - End-to-End Alertmanager Testing
+
+Tests Alertmanager configurations end-to-end, including routing, grouping, inhibition rules, and receiver integrations.
+
+**Features:**
+- Validates Alertmanager routing configurations
+- Tests alert grouping and inhibition rules
+- Simulates alert flows through receivers
+- Validates notification templates and formatting
+- Supports testing without sending actual notifications
+
+**Usage:**
+
+```bash
+# Test Alertmanager configuration
+e2e-alertmanager-test --config=./alertmanager.yml
+
+# Test specific routing tree
+e2e-alertmanager-test --config=./alertmanager.yml \
+  --alert='{"labels":{"severity":"critical","team":"platform"}}'
+
+# Validate inhibition rules
+e2e-alertmanager-test --config=./alertmanager.yml \
+  --test-inhibition
+
+# Dry-run mode (no actual notifications)
+e2e-alertmanager-test --config=./alertmanager.yml \
+  --dry-run
+```
+
+**Example Output:**
+
+```
+Testing Alertmanager configuration: ./alertmanager.yml
+
+Routing Test:
+  Alert: {severity="critical", team="platform"}
+  ✓ Matched route: platform-critical
+  ✓ Receiver: pagerduty-platform
+  ✓ Group by: [alertname, cluster]
+  ✓ Group wait: 10s
+  ✓ Group interval: 5m
+  ✓ Repeat interval: 4h
+
+Inhibition Test:
+  Alert: {severity="warning", alertname="HighMemory"}
+  Inhibited by: {severity="critical", alertname="NodeDown"}
+  ✓ Inhibition rule matched: inhibit-warning-if-critical
+
+Template Test:
+  Receiver: slack-platform
+  ✓ Template rendered successfully
+  ✓ No template errors
+  Preview:
+    [CRITICAL] High Error Rate in production
+    Severity: critical
+    Team: platform
+    Runbook: https://runbooks.example.com/high-error-rate
+
+All tests passed ✓
+```
+
+### 6. stale-alerts-analyzer - Alert Staleness Analyzer
+
+Identifies alerts that haven't fired in a specified time period, helping teams clean up obsolete or overly sensitive alerting rules.
+
+**Features:**
+- Queries Prometheus for alert firing history
+- Identifies alerts that haven't fired in N days
+- Suggests candidates for deletion or review
+- Differentiates between intentionally quiet alerts and stale rules
+- Exports analysis results for review
+
+**Usage:**
+
+```bash
+# Find alerts that haven't fired in 90 days
+stale-alerts-analyzer --prometheus-url=http://localhost:9090 \
+  --days=90
+
+# Analyze specific rules file
+stale-alerts-analyzer --prometheus-url=http://prometheus:9090 \
+  --rules=./alerts.yml \
+  --days=60
+
+# Export results to JSON
+stale-alerts-analyzer --prometheus-url=http://prometheus:9090 \
+  --days=90 \
+  --output=json > stale-alerts.json
+
+# Exclude known quiet alerts
+stale-alerts-analyzer --prometheus-url=http://prometheus:9090 \
+  --days=90 \
+  --exclude="DeadMansSwitch,Watchdog"
+```
+
+**Example Output:**
+
+```
+Analyzing alert staleness over last 90 days...
+Fetching alert history from http://prometheus:9090...
+
+Stale Alerts (No firings in 90+ days):
+
+  Alert: LowDiskSpaceWarning
+    Last fired: 127 days ago (2024-09-15)
+    Configured in: ./alerts/infrastructure.yml:45
+    ⚠ RECOMMENDATION: Review for deletion
+       Reason: No firings in 127 days suggests either:
+         - Alert threshold is too conservative
+         - Infrastructure improvements made alert obsolete
+         - Alert rule needs adjustment
+
+  Alert: HighAPILatency
+    Last fired: 95 days ago (2024-10-17)
+    Configured in: ./alerts/application.yml:12
+    ⚠ RECOMMENDATION: Review alert threshold
+       Reason: Long period without firing may indicate threshold too high
+
+Recently Active Alerts:
+
+  Alert: HighErrorRate
+    Last fired: 2 days ago
+    Firing frequency: 12 times in last 90 days
+    ✓ Alert is active and useful
+
+  Alert: HighMemoryUsage
+    Last fired: 15 days ago
+    Firing frequency: 8 times in last 90 days
+    ✓ Alert is active and useful
+
+Summary:
+  Total alerts analyzed: 24
+  Stale alerts (90+ days): 2 (8.3%)
+  Active alerts: 22 (91.7%)
+
+Recommendations:
+  - Review 2 stale alerts for potential deletion
+  - Consider lowering thresholds or improving sensitivity
+```
+
 ## Installation
 
 ### Homebrew (macOS/Linux)
@@ -179,14 +367,18 @@ brew install conallob/tap/o11y-analysis-tools
 Each tool is available as a container image:
 
 ```bash
-# Pull specific tool
+# Pull specific tools
 docker pull ghcr.io/conallob/promql-fmt:latest
 docker pull ghcr.io/conallob/label-check:latest
 docker pull ghcr.io/conallob/alert-hysteresis:latest
+docker pull ghcr.io/conallob/autogen-promql-tests:latest
+docker pull ghcr.io/conallob/e2e-alertmanager-test:latest
+docker pull ghcr.io/conallob/stale-alerts-analyzer:latest
 
 # Run in container
 docker run -v $(pwd):/data ghcr.io/conallob/promql-fmt:latest --check /data
 docker run -v $(pwd):/data ghcr.io/conallob/label-check:latest /data
+docker run ghcr.io/conallob/stale-alerts-analyzer:latest --prometheus-url=http://prometheus:9090 --days=90
 ```
 
 ### Package Managers
@@ -228,6 +420,9 @@ make build
 go build -o bin/promql-fmt ./cmd/promql-fmt
 go build -o bin/label-check ./cmd/label-check
 go build -o bin/alert-hysteresis ./cmd/alert-hysteresis
+go build -o bin/autogen-promql-tests ./cmd/autogen-promql-tests
+go build -o bin/e2e-alertmanager-test ./cmd/e2e-alertmanager-test
+go build -o bin/stale-alerts-analyzer ./cmd/stale-alerts-analyzer
 
 # Install to $GOPATH/bin
 make install
@@ -300,41 +495,6 @@ if [ $? -ne 0 ]; then
 fi
 ```
 
-## Development
-
-### Running Tests
-
-```bash
-# Run all tests
-make test
-
-# Run tests with coverage
-make test-coverage
-
-# Run specific package tests
-go test ./pkg/formatting
-go test ./internal/promql
-go test ./internal/alertmanager
-```
-
-### Project Structure
-
-```
-.
-├── cmd/
-│   ├── promql-fmt/          # PromQL formatter CLI
-│   ├── label-check/         # Label standards checker CLI
-│   └── alert-hysteresis/    # Alert hysteresis analyzer CLI
-├── internal/
-│   ├── promql/              # PromQL parsing and analysis
-│   └── alertmanager/        # Alertmanager/Prometheus integration
-├── pkg/
-│   └── formatting/          # PromQL formatting logic
-├── examples/                # Example Prometheus rules and alerts
-├── Makefile
-└── README.md
-```
-
 ## Configuration
 
 ### promql-fmt
@@ -368,50 +528,23 @@ threshold: 0.2
 rules_file: ./prometheus/alerts.yml
 ```
 
+## Documentation
+
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contributing guidelines, development setup, and testing
+- **[RELEASING.md](RELEASING.md)** - Release process and versioning
+- **[CLAUDE.md](CLAUDE.md)** - AI assistant guidance for working with this codebase
+
 ## Contributing
 
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure all tests pass: `make test`
-5. Submit a pull request
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for:
+- Development setup and workflow
+- Code style guidelines
+- Testing requirements
+- Pull request process
 
 ## Releasing
 
-Releases are automated using GitHub Actions and GoReleaser.
-
-### Creating a Release
-
-1. Ensure all tests pass: `make test`
-2. Create and push a new tag:
-   ```bash
-   git tag -a v1.0.0 -m "Release v1.0.0"
-   git push origin v1.0.0
-   ```
-3. GitHub Actions will automatically:
-   - Build binaries for all platforms
-   - Create RPM and Deb packages
-   - Build and push container images to ghcr.io
-   - Publish Homebrew formula to conallob/homebrew-tap
-   - Create a GitHub release with artifacts
-
-### Prerequisites for Releases
-
-Repository secrets required:
-- `GITHUB_TOKEN` - Automatically provided by GitHub Actions
-- `HOMEBREW_TAP_TOKEN` - Personal access token with write access to homebrew-tap repo
-- `GPG_KEY_FILE` - (Optional) GPG key for signing packages
-
-### Release Artifacts
-
-Each release includes:
-- Binary archives (tar.gz/zip) for Linux, macOS, Windows (amd64, arm64)
-- Debian packages (.deb)
-- RPM packages (.rpm)
-- Container images (multi-arch) on GitHub Container Registry
-- Homebrew formula in conallob/homebrew-tap
+For information about creating releases, see [RELEASING.md](RELEASING.md).
 
 ## License
 
