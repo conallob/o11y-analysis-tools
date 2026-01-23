@@ -4,11 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is a **Go-based observability analysis tools repository** containing three CLI tools for PromQL-compatible monitoring systems:
+This is a **Go-based observability analysis tools repository** containing six CLI tools for PromQL-compatible monitoring systems:
 
 1. **promql-fmt**: PromQL expression formatter and validator
 2. **label-check**: Label standards enforcement tool
 3. **alert-hysteresis**: Alert firing pattern analyzer
+4. **autogen-promql-tests**: PromQL test case generator
+5. **e2e-alertmanager-test**: End-to-end Alertmanager testing tool
+6. **stale-alerts-analyzer**: Alert staleness analyzer
 
 The repository uses standard Go project structure, GitHub Actions for CI/CD, and GoReleaser for multi-platform releases.
 
@@ -38,15 +41,18 @@ The repository uses standard Go project structure, GitHub Actions for CI/CD, and
 ### Go Module Structure
 
 ```
-cmd/                    # CLI entry points (main packages)
-  promql-fmt/          # PromQL formatter tool
-  label-check/         # Label validation tool
-  alert-hysteresis/    # Alert analysis tool
-pkg/                   # Public libraries (importable by external projects)
-  formatting/          # PromQL formatting logic
-internal/              # Private libraries (not importable externally)
-  promql/             # PromQL parsing utilities
-  alertmanager/       # Prometheus/Alertmanager integration
+cmd/                         # CLI entry points (main packages)
+  promql-fmt/               # PromQL formatter tool
+  label-check/              # Label validation tool
+  alert-hysteresis/         # Alert analysis tool
+  autogen-promql-tests/     # PromQL test case generator
+  e2e-alertmanager-test/    # End-to-end Alertmanager testing tool
+  stale-alerts-analyzer/    # Alert staleness analyzer
+pkg/                         # Public libraries (importable by external projects)
+  formatting/               # PromQL formatting logic
+internal/                    # Private libraries (not importable externally)
+  promql/                   # PromQL parsing utilities
+  alertmanager/             # Prometheus/Alertmanager integration
 ```
 
 ### Testing Strategy
@@ -82,6 +88,9 @@ go test -v -race -coverprofile=./coverage.txt ./...
 go build -o bin/ ./cmd/promql-fmt
 go build -o bin/ ./cmd/label-check
 go build -o bin/ ./cmd/alert-hysteresis
+go build -o bin/ ./cmd/autogen-promql-tests
+go build -o bin/ ./cmd/e2e-alertmanager-test
+go build -o bin/ ./cmd/stale-alerts-analyzer
 
 # 4. Run golangci-lint (matches CI lint job)
 golangci-lint run
@@ -114,6 +123,9 @@ mkdir -p bin
 go build -o bin/ ./cmd/promql-fmt
 go build -o bin/ ./cmd/label-check
 go build -o bin/ ./cmd/alert-hysteresis
+go build -o bin/ ./cmd/autogen-promql-tests
+go build -o bin/ ./cmd/e2e-alertmanager-test
+go build -o bin/ ./cmd/stale-alerts-analyzer
 
 echo "==> 4. Running golangci-lint..."
 if command -v golangci-lint > /dev/null; then
@@ -187,6 +199,9 @@ make test && make lint
    go build -o bin/ ./cmd/promql-fmt
    go build -o bin/ ./cmd/label-check
    go build -o bin/ ./cmd/alert-hysteresis
+   go build -o bin/ ./cmd/autogen-promql-tests
+   go build -o bin/ ./cmd/e2e-alertmanager-test
+   go build -o bin/ ./cmd/stale-alerts-analyzer
    golangci-lint run
 
    # Or use Makefile
