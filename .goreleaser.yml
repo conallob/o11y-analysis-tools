@@ -51,6 +51,51 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
 
+  - id: autogen-promql-tests
+    main: ./cmd/autogen-promql-tests
+    binary: autogen-promql-tests
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+  - id: e2e-alertmanager-test
+    main: ./cmd/e2e-alertmanager-test
+    binary: e2e-alertmanager-test
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+  - id: stale-alerts-analyzer
+    main: ./cmd/stale-alerts-analyzer
+    binary: stale-alerts-analyzer
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
 archives:
   - id: default
     formats:
@@ -193,6 +238,99 @@ dockers:
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
 
+  - id: autogen-promql-tests-amd64
+    ids:
+      - autogen-promql-tests
+    image_templates:
+      - "ghcr.io/conallob/autogen-promql-tests:{{ .Version }}-amd64"
+      - "ghcr.io/conallob/autogen-promql-tests:latest-amd64"
+    dockerfile: Dockerfile.autogen-promql-tests
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=autogen-promql-tests"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+
+  - id: autogen-promql-tests-arm64
+    ids:
+      - autogen-promql-tests
+    image_templates:
+      - "ghcr.io/conallob/autogen-promql-tests:{{ .Version }}-arm64"
+      - "ghcr.io/conallob/autogen-promql-tests:latest-arm64"
+    dockerfile: Dockerfile.autogen-promql-tests
+    use: buildx
+    goarch: arm64
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=autogen-promql-tests"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+
+  - id: e2e-alertmanager-test-amd64
+    ids:
+      - e2e-alertmanager-test
+    image_templates:
+      - "ghcr.io/conallob/e2e-alertmanager-test:{{ .Version }}-amd64"
+      - "ghcr.io/conallob/e2e-alertmanager-test:latest-amd64"
+    dockerfile: Dockerfile.e2e-alertmanager-test
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=e2e-alertmanager-test"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+
+  - id: e2e-alertmanager-test-arm64
+    ids:
+      - e2e-alertmanager-test
+    image_templates:
+      - "ghcr.io/conallob/e2e-alertmanager-test:{{ .Version }}-arm64"
+      - "ghcr.io/conallob/e2e-alertmanager-test:latest-arm64"
+    dockerfile: Dockerfile.e2e-alertmanager-test
+    use: buildx
+    goarch: arm64
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=e2e-alertmanager-test"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+
+  - id: stale-alerts-analyzer-amd64
+    ids:
+      - stale-alerts-analyzer
+    image_templates:
+      - "ghcr.io/conallob/stale-alerts-analyzer:{{ .Version }}-amd64"
+      - "ghcr.io/conallob/stale-alerts-analyzer:latest-amd64"
+    dockerfile: Dockerfile.stale-alerts-analyzer
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=stale-alerts-analyzer"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+
+  - id: stale-alerts-analyzer-arm64
+    ids:
+      - stale-alerts-analyzer
+    image_templates:
+      - "ghcr.io/conallob/stale-alerts-analyzer:{{ .Version }}-arm64"
+      - "ghcr.io/conallob/stale-alerts-analyzer:latest-arm64"
+    dockerfile: Dockerfile.stale-alerts-analyzer
+    use: buildx
+    goarch: arm64
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=stale-alerts-analyzer"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+
 docker_manifests:
   - name_template: "ghcr.io/conallob/promql-fmt:{{ .Version }}"
     image_templates:
@@ -224,6 +362,36 @@ docker_manifests:
       - "ghcr.io/conallob/alert-hysteresis:latest-amd64"
       - "ghcr.io/conallob/alert-hysteresis:latest-arm64"
 
+  - name_template: "ghcr.io/conallob/autogen-promql-tests:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/conallob/autogen-promql-tests:{{ .Version }}-amd64"
+      - "ghcr.io/conallob/autogen-promql-tests:{{ .Version }}-arm64"
+
+  - name_template: "ghcr.io/conallob/autogen-promql-tests:latest"
+    image_templates:
+      - "ghcr.io/conallob/autogen-promql-tests:latest-amd64"
+      - "ghcr.io/conallob/autogen-promql-tests:latest-arm64"
+
+  - name_template: "ghcr.io/conallob/e2e-alertmanager-test:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/conallob/e2e-alertmanager-test:{{ .Version }}-amd64"
+      - "ghcr.io/conallob/e2e-alertmanager-test:{{ .Version }}-arm64"
+
+  - name_template: "ghcr.io/conallob/e2e-alertmanager-test:latest"
+    image_templates:
+      - "ghcr.io/conallob/e2e-alertmanager-test:latest-amd64"
+      - "ghcr.io/conallob/e2e-alertmanager-test:latest-arm64"
+
+  - name_template: "ghcr.io/conallob/stale-alerts-analyzer:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/conallob/stale-alerts-analyzer:{{ .Version }}-amd64"
+      - "ghcr.io/conallob/stale-alerts-analyzer:{{ .Version }}-arm64"
+
+  - name_template: "ghcr.io/conallob/stale-alerts-analyzer:latest"
+    image_templates:
+      - "ghcr.io/conallob/stale-alerts-analyzer:latest-amd64"
+      - "ghcr.io/conallob/stale-alerts-analyzer:latest-arm64"
+
 brews:
   - name: o11y-analysis-tools
     repository:
@@ -238,10 +406,16 @@ brews:
       bin.install "promql-fmt"
       bin.install "label-check"
       bin.install "alert-hysteresis"
+      bin.install "autogen-promql-tests"
+      bin.install "e2e-alertmanager-test"
+      bin.install "stale-alerts-analyzer"
     test: |
       system "#{bin}/promql-fmt", "--help"
       system "#{bin}/label-check", "--help"
       system "#{bin}/alert-hysteresis", "--help"
+      system "#{bin}/autogen-promql-tests", "--help"
+      system "#{bin}/e2e-alertmanager-test", "--help"
+      system "#{bin}/stale-alerts-analyzer", "--help"
 
 checksum:
   name_template: 'checksums.txt'
@@ -295,6 +469,9 @@ release:
     podman pull ghcr.io/conallob/promql-fmt:{{ .Version }}
     podman pull ghcr.io/conallob/label-check:{{ .Version }}
     podman pull ghcr.io/conallob/alert-hysteresis:{{ .Version }}
+    podman pull ghcr.io/conallob/autogen-promql-tests:{{ .Version }}
+    podman pull ghcr.io/conallob/e2e-alertmanager-test:{{ .Version }}
+    podman pull ghcr.io/conallob/stale-alerts-analyzer:{{ .Version }}
     ```
 
     ### Package Managers
