@@ -1369,6 +1369,88 @@ func TestCheckLabelNaming(t *testing.T) {
 	}
 }
 
+func TestCheckUtilizationDivisor(t *testing.T) {
+	tests := []struct {
+		name        string
+		expr        string
+		expectIssue bool
+	}{
+		{
+			name:        "valid utilization with _total divisor",
+			expr:        "memory_utilization_bytes / memory_total_bytes",
+			expectIssue: false,
+		},
+		{
+			name:        "valid utilization with total suffix",
+			expr:        "cpu_utilization / cpu_total",
+			expectIssue: false,
+		},
+		{
+			name:        "valid utilization with _total in complex expression",
+			expr:        "sum(disk_utilization_bytes) / sum(disk_bytes_total)",
+			expectIssue: false,
+		},
+		{
+			name:        "invalid utilization without total in divisor",
+			expr:        "memory_utilization_bytes / memory_capacity_bytes",
+			expectIssue: true,
+		},
+		{
+			name:        "invalid utilization with used divisor",
+			expr:        "cpu_utilization / cpu_used",
+			expectIssue: true,
+		},
+		{
+			name:        "no division - should pass",
+			expr:        "memory_utilization_bytes",
+			expectIssue: false,
+		},
+		{
+			name:        "division without utilization metric - should pass",
+			expr:        "memory_used_bytes / memory_capacity_bytes",
+			expectIssue: false,
+		},
+		{
+			name:        "utilization in aggregation with proper total",
+			expr:        "sum(container_memory_utilization) by (pod) / sum(container_memory_total) by (pod)",
+			expectIssue: false,
+		},
+		{
+			name:        "utilization in aggregation without total",
+			expr:        "sum(container_memory_utilization) by (pod) / sum(container_memory_limit) by (pod)",
+			expectIssue: true,
+		},
+		{
+			name:        "case insensitive utilization check",
+			expr:        "Memory_Utilization_Bytes / memory_capacity",
+			expectIssue: true,
+		},
+		{
+			name:        "case insensitive total check",
+			expr:        "memory_utilization / Memory_Total",
+			expectIssue: false,
+		},
+		{
+			name:        "utilization with rate and _total",
+			expr:        "rate(network_utilization_bytes[5m]) / rate(network_bytes_total[5m])",
+			expectIssue: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issues := checkUtilizationDivisor(tt.expr)
+
+			if tt.expectIssue && len(issues) == 0 {
+				t.Errorf("Expected issue but got none")
+			}
+			if !tt.expectIssue && len(issues) > 0 {
+				t.Errorf("Expected no issues but got: %v", issues)
+			}
+		})
+	}
+}
+
 func TestCheckRecordingRuleNaming(t *testing.T) {
 	tests := []struct {
 		name        string
