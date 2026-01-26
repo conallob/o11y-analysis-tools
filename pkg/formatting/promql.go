@@ -491,6 +491,9 @@ func checkPrometheusBestPractices(expr string) []string {
 	// Check for instrumentation best practices
 	issues = append(issues, checkInstrumentationPatterns(expr)...)
 
+	// Check for utilization metrics without proper total divisor
+	issues = append(issues, checkUtilizationDivisor(expr)...)
+
 	// Check for synthetic metrics without proper label selectors
 	issues = append(issues, checkSyntheticMetrics(expr)...)
 
@@ -680,6 +683,64 @@ func checkInstrumentationPatterns(expr string) []string {
 		if !strings.Contains(expr, "!= 0") {
 			issues = append(issues, "Division detected without zero-protection - consider adding '... or 1' or checking for non-zero denominator")
 		}
+	}
+
+	return issues
+}
+
+// checkUtilizationDivisor validates that utilization metrics are divided by a total metric
+// Utilization metrics should follow the pattern: used / total
+// The denominator (second operand of division) should contain "_total" or "total" in the metric name
+func checkUtilizationDivisor(expr string) []string {
+	var issues []string
+
+	// Check if the expression involves division
+	if !strings.Contains(expr, " / ") {
+		return issues
+	}
+
+	// Extract metric names from the expression to check if any indicate utilization
+	metricNames := extractMetricNames(expr)
+	hasUtilization := false
+	for _, name := range metricNames {
+		nameLower := strings.ToLower(name)
+		if strings.Contains(nameLower, "utilization") {
+			hasUtilization = true
+			break
+		}
+	}
+
+	// If no utilization metrics found, nothing to check
+	if !hasUtilization {
+		return issues
+	}
+
+	// Split by division operator, respecting parentheses
+	parts := splitByBinaryOperator(expr, " / ")
+	if len(parts) != 2 {
+		return issues
+	}
+
+	// Extract the denominator (right side of division)
+	denominator := strings.TrimSpace(parts[1])
+
+	// Extract metric names from the denominator
+	denominatorMetrics := extractMetricNames(denominator)
+
+	// Check if any metric in the denominator has "total" or "_total"
+	hasTotal := false
+	for _, metric := range denominatorMetrics {
+		metricLower := strings.ToLower(metric)
+		if strings.Contains(metricLower, "_total") || strings.HasSuffix(metricLower, "total") {
+			hasTotal = true
+			break
+		}
+	}
+
+	if !hasTotal {
+		issues = append(issues, fmt.Sprintf(
+			"Utilization metric detected but denominator does not contain a 'total' metric - "+
+				"utilization should be calculated as (used / total), where the denominator metric name contains '_total' or 'total'"))
 	}
 
 	return issues
