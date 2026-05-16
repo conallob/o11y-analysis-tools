@@ -24,7 +24,7 @@ jobs:
           go-version: ${{ matrix.go }}
 
       - name: Configure toolchain
-        run: go env -w GOTOOLCHAIN=go${{ matrix.go }}+auto
+        run: go env -w GOTOOLCHAIN=local
 
       - name: Download dependencies
         run: go mod download
