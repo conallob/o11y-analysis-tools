@@ -1582,3 +1582,188 @@ func TestCheckRecordingRuleNaming(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckMetricNamingConventionsInvalidChars(t *testing.T) {
+	// A metric name starting with a digit hits the invalid-chars branch.
+	issues := checkMetricNamingConventions("123metric")
+	if len(issues) == 0 {
+		t.Error("expected issues for metric name starting with a digit")
+	}
+	found := false
+	for _, issue := range issues {
+		if strings.Contains(issue, "invalid characters") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'invalid characters' issue, got: %v", issues)
+	}
+}
+
+func TestGetIndentationAllWhitespace(t *testing.T) {
+	// A line containing only spaces exhausts the loop without returning early,
+	// hitting the bare `return ""` at the end of getIndentation.
+	result := getIndentation("   ")
+	if result != "" {
+		t.Errorf("expected empty string for all-whitespace line, got %q", result)
+	}
+}
+
+func TestCheckAndFormatPromQLDoubleQuotedExpr(_ *testing.T) {
+	// Double-quoted expressions are stripped of their quotes before processing.
+	input := `expr: "sum(rate(http_requests_total[5m]))"`
+	opts := CheckOptions{}
+	_, _ = CheckAndFormatPromQL(input, opts)
+}
+
+func TestCheckAndFormatPromQLSingleQuotedExpr(_ *testing.T) {
+	// Single-quoted expressions hit the else-if branch.
+	input := `expr: 'sum(rate(http_requests_total[5m]))'`
+	opts := CheckOptions{}
+	_, _ = CheckAndFormatPromQL(input, opts)
+}
+
+func TestCheckAndFormatPromQLEqualStyleCounts(_ *testing.T) {
+	// One postfix expression and one prefix expression give equal style counts,
+	// which falls through to the tiebreak case (prefer postfix).
+	input := `
+expr: sum(http_requests_total) by (job)
+expr: sum by (job) (http_requests_total)
+`
+	opts := CheckOptions{}
+	_, _ = CheckAndFormatPromQL(input, opts)
+}
+
+func TestCheckAndFormatPromQLWithPrometheusURL(_ *testing.T) {
+	// Provide a mock Prometheus server so the timeseries-continuity path runs.
+	// Return a valid but empty range-query response.
+	resp := map[string]interface{}{
+		"status": "success",
+		"data": map[string]interface{}{
+			"resultType": "matrix",
+			"result":     []interface{}{},
+		},
+	}
+	body, _ := json.Marshal(resp)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	content := `groups:
+  - name: test
+    rules:
+      - alert: TestAlert
+        expr: up == 0
+        for: 5m
+`
+	opts := CheckOptions{PrometheusURL: srv.URL, Verbose: true}
+	_, _ = CheckAndFormatPromQL(content, opts)
+}
+
+func TestCheckAndFormatPromQLWithPrometheusURLError(_ *testing.T) {
+	// A Prometheus server that returns an error exercises the verbose error path.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	content := `groups:
+  - name: test
+    rules:
+      - alert: TestAlert
+        expr: up == 0
+        for: 5m
+`
+	opts := CheckOptions{PrometheusURL: srv.URL, Verbose: true}
+	_, _ = CheckAndFormatPromQL(content, opts)
+}
+
+func TestCheckAndFormatPromQLWithSparseMetric(_ *testing.T) {
+	// Return a response indicating a sparse metric (gaps > 2 min) to hit the
+	// isSparse branch in checkTimeseriesContinuity.
+	now := float64(1000000)
+	resp := map[string]interface{}{
+		"status": "success",
+		"data": map[string]interface{}{
+			"resultType": "matrix",
+			"result": []interface{}{
+				map[string]interface{}{
+					"metric": map[string]string{},
+					// Two values far apart: 0 and now (a big gap)
+					"values": [][]interface{}{
+						{now - 7200, "1"},
+						{now, "1"},
+					},
+				},
+			},
+		},
+	}
+	body, _ := json.Marshal(resp)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	content := `groups:
+  - name: test
+    rules:
+      - alert: TestAlert
+        expr: up == 0
+        for: 5m
+`
+	opts := CheckOptions{PrometheusURL: srv.URL}
+	_, _ = CheckAndFormatPromQL(content, opts)
+}
+
+func TestFormatOperandPrefixStyle(t *testing.T) {
+	tests := []struct {
+		name            string
+		expr            string
+		baseIndent      int
+		omitAggregation bool
+		wantContains    string
+	}{
+		{
+			name:         "prefix style sum by",
+			expr:         "sum by (job) (http_requests_total)",
+			baseIndent:   0,
+			wantContains: "sum by (job)",
+		},
+		{
+			name:            "prefix style with omitAggregation",
+			expr:            "sum by (job) (http_requests_total)",
+			baseIndent:      0,
+			omitAggregation: true,
+			wantContains:    "sum (",
+		},
+		{
+			name:         "prefix style with without clause",
+			expr:         "avg without (instance) (cpu_usage_seconds_total)",
+			baseIndent:   0,
+			wantContains: "avg without",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatOperand(tt.expr, tt.baseIndent, tt.omitAggregation)
+			if !strings.Contains(result, tt.wantContains) {
+				t.Errorf("formatOperand(%q) = %q, want it to contain %q", tt.expr, result, tt.wantContains)
+			}
+		})
+	}
+}
+
+func TestSplitByBinaryOperatorNoMatch(t *testing.T) {
+	// Expression without the operator returns a single-element slice.
+	result := splitByBinaryOperator("http_requests_total", " / ")
+	if len(result) != 1 {
+		t.Errorf("expected 1 element, got %d: %v", len(result), result)
+	}
+	if result[0] != "http_requests_total" {
+		t.Errorf("expected original expr, got %q", result[0])
+	}
+}

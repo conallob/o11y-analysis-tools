@@ -305,3 +305,12 @@ groups:
 		t.Errorf("Expected no violations for alert with location label, got %d: %v", len(violations), violations)
 	}
 }
+
+func TestGenerateSuggestionNoMatch(t *testing.T) {
+	// An expression that starts with a non-word character gives an empty regex
+	// match, exercising the early-return branch in generateSuggestion.
+	result := generateSuggestion("(metric > 0)", []string{"env"})
+	if result == "" {
+		t.Error("expected a non-empty suggestion")
+	}
+}
