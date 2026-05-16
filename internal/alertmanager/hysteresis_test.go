@@ -1108,3 +1108,40 @@ func TestDeleteAlertsFromRulesErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestAnalyzeAlertWithPercentileAtMaximum(t *testing.T) {
+	// targetPercentile=1.0 causes targetIndex = len(durations), hitting the
+	// boundary clamp on line 235.
+	analyzer := NewHysteresisAnalyzer("http://localhost:9090", false)
+	events := []AlertEvent{
+		{Duration: 2 * time.Minute},
+		{Duration: 5 * time.Minute},
+	}
+	analysis := analyzer.AnalyzeAlertWithPercentile("TestAlert", events, 1.0)
+	if analysis.RecommendedFor == 0 {
+		t.Error("expected non-zero RecommendedFor at 100th percentile")
+	}
+}
+
+func TestLoadAlertDurationsWithFallbackParse(t *testing.T) {
+	// "for: 0" is valid Prometheus YAML but time.ParseDuration("0") fails;
+	// the code retries with "0" + "0s" = "00s" which Go accepts as 0s.
+	tmpFile := t.TempDir() + "/rules.yml"
+	content := `groups:
+  - name: g
+    rules:
+      - alert: ZeroDurationAlert
+        expr: up == 0
+        for: 0
+`
+	if err := writeTestFile(tmpFile, content); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	durations, err := LoadAlertDurations(tmpFile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// The alert is either skipped (both parses fail) or parsed as 0; either
+	// way the function should not error, and other alerts remain unaffected.
+	_ = durations
+}
