@@ -1,0 +1,63 @@
+{
+  "name": "o11y-analysis-tools",
+  "owner": {
+    "name": "conallob"
+  },
+  "description": "PromQL-Cody: Agent Skills for the o11y-analysis-tools PromQL/Alertmanager CLIs (promql-fmt, label-check, autogen-promql-tests, e2e-alertmanager-test, alert-hysteresis, stale-alerts-analyzer)",
+  "plugins": [
+    {
+      "name": "promql-fmt",
+      "source": "./",
+      "skills": ["./skills/promql-fmt"],
+      "description": "Format/lint PromQL expressions embedded in Prometheus rule YAML files. Hermetic; safe for CI.",
+      "license": "BSD-3-Clause",
+      "keywords": ["promql", "prometheus", "formatting", "lint"],
+      "strict": false
+    },
+    {
+      "name": "label-check",
+      "source": "./",
+      "skills": ["./skills/label-check"],
+      "description": "Enforce required labels on PromQL expressions and alert definitions. Hermetic; safe for CI.",
+      "license": "BSD-3-Clause",
+      "keywords": ["promql", "prometheus", "labels", "multi-tenant"],
+      "strict": false
+    },
+    {
+      "name": "autogen-promql-tests",
+      "source": "./",
+      "skills": ["./skills/autogen-promql-tests"],
+      "description": "Scaffold promtool unit-test skeletons for untested Prometheus alert/recording rules. Hermetic.",
+      "license": "BSD-3-Clause",
+      "keywords": ["promql", "prometheus", "promtool", "testing"],
+      "strict": false
+    },
+    {
+      "name": "e2e-alertmanager-test",
+      "source": "./",
+      "skills": ["./skills/e2e-alertmanager-test"],
+      "description": "Render end-to-end alert notification previews (email/Slack/JSON) through a live Alertmanager.",
+      "license": "BSD-3-Clause",
+      "keywords": ["alertmanager", "prometheus", "notifications", "preview"],
+      "strict": false
+    },
+    {
+      "name": "alert-hysteresis",
+      "source": "./",
+      "skills": ["./skills/alert-hysteresis"],
+      "description": "Recommend 'for:' duration tuning from live Prometheus alert-firing history. Interactive.",
+      "license": "BSD-3-Clause",
+      "keywords": ["prometheus", "alerting", "hysteresis", "alert-fatigue"],
+      "strict": false
+    },
+    {
+      "name": "stale-alerts-analyzer",
+      "source": "./",
+      "skills": ["./skills/stale-alerts-analyzer"],
+      "description": "Flag alert rules that rarely or never fire, using live Prometheus history. Interactive.",
+      "license": "BSD-3-Clause",
+      "keywords": ["prometheus", "alerting", "dead-code", "cleanup"],
+      "strict": false
+    }
+  ]
+}

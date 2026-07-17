@@ -77,6 +77,10 @@ before touching production alerting.
   `.claude/skills/<tool>/SKILL.md` (or an equivalent skills directory for
   another agent host) to make that one tool's usage instructions available
   independently of the rest of this repo.
+- For every install path — local copy, the Claude Code plugin
+  marketplace this repo ships (`.claude-plugin/marketplace.json`), or the
+  equivalent mechanism in other agentskills.io-compliant agents (OpenAI
+  Codex, Cursor, etc.) — see [`INSTALLING.md`](INSTALLING.md).
 - Every binary is built from `cmd/<tool>/`. Build all of them with
   `make build` (binaries land in `./bin/`), build one with
   `go build -o bin/<tool> ./cmd/<tool>`, or install a released version with
