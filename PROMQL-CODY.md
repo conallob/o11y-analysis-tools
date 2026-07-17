@@ -1,5 +1,9 @@
 # PromQL-Cody
 
+> **In memoriam.** This skill is named after and dedicated to the late
+> [Cody Smith](https://supah.green). A further link explaining his
+> connection to PromQL best practices will be added here at a later date.
+
 **PromQL-Cody** is the unified Agent Skill for `o11y-analysis-tools`: it
 teaches a coding agent how to use all six PromQL/Alertmanager CLIs in this
 repo together — which are safe to run unattended, which need a human in
