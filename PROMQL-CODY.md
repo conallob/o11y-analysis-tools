@@ -1,12 +1,19 @@
-# o11y-analysis-tools — Agent Skills
+# PromQL-Cody
+
+**PromQL-Cody** is the unified Agent Skill for `o11y-analysis-tools`: it
+teaches a coding agent how to use all six PromQL/Alertmanager CLIs in this
+repo together — which are safe to run unattended, which need a human in
+the loop, and what order they belong in.
 
 This repo ships six focused Go CLIs for working with PromQL and Alertmanager
-rules. Each one has a packaged [Agent Skill](https://code.claude.com/docs)
-under `skills/<tool>/SKILL.md` — a self-contained Markdown file with YAML
-frontmatter that teaches a coding agent exactly how to invoke the tool,
-parse its output, and where it fits in a workflow. Each skill directory is
-independently publishable to a skills marketplace; you can copy any single
-`skills/<tool>/` directory out of this repo without the others.
+rules. Each one also has its own packaged
+[Agent Skill](https://code.claude.com/docs) under `skills/<tool>/SKILL.md` —
+a self-contained Markdown file with YAML frontmatter that teaches a coding
+agent exactly how to invoke that one tool, parse its output, and where it
+fits in a workflow. Each skill directory is independently publishable to a
+skills marketplace; you can copy any single `skills/<tool>/` directory out
+of this repo without the others, or bring this whole file along as
+PromQL-Cody to get the combined picture.
 
 ## The six tools at a glance
 
@@ -64,7 +71,7 @@ Steps 2–3 (and 6, given a disposable Alertmanager) belong in CI. Steps 4 and
 generated placeholders or a human to interpret a statistical recommendation
 before touching production alerting.
 
-## Using these skills
+## Using PromQL-Cody and its skills
 
 - Each `skills/<tool>/SKILL.md` is a standalone Agent Skill: copy it into
   `.claude/skills/<tool>/SKILL.md` (or an equivalent skills directory for
