@@ -32,19 +32,29 @@ Or via `make build`, `make test`, `make lint`. Run the full suite before
 committing — CI (`.github/workflows/test.yml`) runs the same commands with
 `-race` on Go 1.24/1.25 across ubuntu/macos.
 
-## Agent Skills for this repo
+## PromQL-Cody: the unified agent
 
-This repo packages its own tools as [Agent Skills](https://agentskills.io) —
-`SKILL.md` files with YAML frontmatter that teach an agent exactly how to
-invoke each tool, parse its output, and where it fits in a workflow. Load
-these instead of re-deriving usage from `cmd/*/main.go` on your own:
+**[`PROMQL-CODY.md`](PROMQL-CODY.md)** is this repo's unified Agent Skill —
+named after and dedicated to the late Cody Smith. Read it first: it teaches
+an agent how to use all six tools below *together* (which are hermetic and
+CI-safe vs. interactive-only, the two-families breakdown, and the
+recommended end-to-end workflow — format → label-check → generate tests →
+preview notifications → periodically tune/cull alerts). Treat it as the
+entry point; the per-tool skill files below are the detail it links out to.
 
-- **[`PROMQL-CODY.md`](PROMQL-CODY.md)** — unified reference: all six tools,
-  which are hermetic/CI-safe vs. interactive-only, and the recommended
-  end-to-end workflow (format → label-check → generate tests → preview
-  notifications → periodically tune/cull alerts).
-- **`skills/<tool>/SKILL.md`** — one per tool, each independently usable:
-  [`promql-fmt`](skills/promql-fmt/SKILL.md),
+Note `PROMQL-CODY.md` is a plain reference doc, not itself a `SKILL.md`
+directory — it isn't independently installable via the mechanisms below.
+Read it directly, or point an agent at the file.
+
+## Individual tool skills
+
+This repo also packages each tool as its own [Agent Skill](https://agentskills.io) —
+a `skills/<tool>/SKILL.md` file with YAML frontmatter that teaches an agent
+exactly how to invoke that one tool, parse its output, and where it fits in
+a workflow. Load the relevant one instead of re-deriving usage from
+`cmd/*/main.go` on your own:
+
+- [`promql-fmt`](skills/promql-fmt/SKILL.md),
   [`label-check`](skills/label-check/SKILL.md),
   [`autogen-promql-tests`](skills/autogen-promql-tests/SKILL.md),
   [`e2e-alertmanager-test`](skills/e2e-alertmanager-test/SKILL.md),
@@ -58,6 +68,21 @@ are interactive/judgment-assisted, not something to run unattended or wire
 into CI. `e2e-alertmanager-test` needs a reachable Alertmanager — see its
 skill for how to make that hermetic with a skeleton config before using it
 in CI.
+
+## Installing the binaries
+
+Separately from the *skills* (below), the CLI binaries themselves install
+several ways — see the top-level [`README.md`](README.md#installation) for
+the full list (container images, .deb/.rpm, pre-built releases, build from
+source). The quickest for a local agent environment:
+
+```bash
+# Homebrew (macOS/Linux) — all six tools in one tap
+brew install conallob/tap/o11y-analysis-tools
+
+# Or build/install a single tool from source
+go install github.com/conallob/o11y-analysis-tools/cmd/promql-fmt@latest
+```
 
 ## Installing these skills via a marketplace
 
