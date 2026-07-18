@@ -84,6 +84,18 @@ brew install conallob/tap/o11y-analysis-tools
 go install github.com/conallob/o11y-analysis-tools/cmd/promql-fmt@latest
 ```
 
+Each tool also publishes a standalone container image to `ghcr.io` per
+release — the simplest way to run a hermetic tool (`promql-fmt`,
+`label-check`) as a CI step with no Go toolchain on the runner:
+
+```bash
+docker pull ghcr.io/conallob/promql-fmt:latest
+docker run -v "$(pwd)":/data ghcr.io/conallob/promql-fmt:latest --check /data
+```
+
+Same pattern for the other five: `ghcr.io/conallob/<tool>:latest` (or
+pin `:<version>` instead of `:latest` for a reproducible pipeline).
+
 ## Installing these skills via a marketplace
 
 Don't just read the skill files in place — install them into your own
