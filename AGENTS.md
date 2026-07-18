@@ -34,17 +34,20 @@ committing — CI (`.github/workflows/test.yml`) runs the same commands with
 
 ## PromQL-Cody: the unified agent
 
-**[`PROMQL-CODY.md`](PROMQL-CODY.md)** is this repo's unified Agent Skill —
-named after and dedicated to the late Cody Smith. Read it first: it teaches
-an agent how to use all six tools below *together* (which are hermetic and
-CI-safe vs. interactive-only, the two-families breakdown, and the
-recommended end-to-end workflow — format → label-check → generate tests →
-preview notifications → periodically tune/cull alerts). Treat it as the
-entry point; the per-tool skill files below are the detail it links out to.
+**[`skills/promql-cody/SKILL.md`](skills/promql-cody/SKILL.md)** is this
+repo's unified Agent Skill — named after and dedicated to the late Cody
+Smith. Load it first: it teaches an agent how to use all six tools below
+*together* (which are hermetic and CI-safe vs. interactive-only, the
+two-families breakdown, and the recommended end-to-end workflow — format →
+label-check → generate tests → preview notifications → periodically
+tune/cull alerts). Treat it as the entry point; the per-tool skill files
+below are the detail it links out to.
 
-Note `PROMQL-CODY.md` is a plain reference doc, not itself a `SKILL.md`
-directory — it isn't independently installable via the mechanisms below.
-Read it directly, or point an agent at the file.
+Unlike the root [`PROMQL-CODY.md`](PROMQL-CODY.md) landing page (a plain
+doc, not independently installable), `skills/promql-cody/` is a real
+`SKILL.md` directory — install it the same way as the six tool skills
+below, including via this repo's Claude Code plugin marketplace
+(`promql-cody@o11y-analysis-tools`).
 
 ## Individual tool skills
 
@@ -113,9 +116,9 @@ listings, are in **[`INSTALLING.md`](INSTALLING.md)**; short version:
   `.claude-plugin/marketplace.json`. From inside Claude Code:
   ```
   /plugin marketplace add conallob/o11y-analysis-tools
-  /plugin install promql-fmt@o11y-analysis-tools
+  /plugin install promql-cody@o11y-analysis-tools
   ```
-  (repeat per tool — `label-check`, `autogen-promql-tests`,
+  (repeat per tool — `promql-fmt`, `label-check`, `autogen-promql-tests`,
   `e2e-alertmanager-test`, `alert-hysteresis`, `stale-alerts-analyzer` —
   or non-interactively via `claude plugin marketplace add ...` /
   `claude plugin install ...`).

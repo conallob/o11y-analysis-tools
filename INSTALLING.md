@@ -1,15 +1,20 @@
 # Installing the PromQL-Cody skills
 
-This repo publishes seven things you can install into an agent's skills
-directory: [`PROMQL-CODY.md`](PROMQL-CODY.md) (the unified index) and the
-six standalone `skills/<tool>/SKILL.md` files. All of them are plain
+This repo publishes seven installable Agent Skills:
+[`skills/promql-cody/SKILL.md`](skills/promql-cody/SKILL.md) (the unified
+agent that orchestrates the other six) and the six standalone
+`skills/<tool>/SKILL.md` files. All seven are plain
 [Agent Skills](https://agentskills.io) — a folder with a `SKILL.md`
 containing YAML frontmatter (`name`, `description`) plus instructions. That
 format is an open, cross-vendor standard, not something specific to Claude,
-so the same six directories install into any agent that speaks it. This
+so the same seven directories install into any agent that speaks it. This
 doc covers three ways to get them: local copy (works everywhere, zero
 setup), the Claude Code plugin marketplace (this repo ships a working
 manifest), and the equivalent mechanisms in other agents.
+
+[`PROMQL-CODY.md`](PROMQL-CODY.md) at the repo root is a short landing
+page pointing at `skills/promql-cody/SKILL.md` — read it for an overview,
+but install the `skills/promql-cody/` directory, not the root file.
 
 ## 1. Claude Code
 
@@ -38,6 +43,7 @@ independently installable plugin. From inside Claude Code:
 
 ```
 /plugin marketplace add conallob/o11y-analysis-tools
+/plugin install promql-cody@o11y-analysis-tools
 /plugin install promql-fmt@o11y-analysis-tools
 /plugin install label-check@o11y-analysis-tools
 /plugin install autogen-promql-tests@o11y-analysis-tools
@@ -122,13 +128,15 @@ move a skill from one compliant agent to another.
 
 ## Which files are and aren't installable skills
 
-- `skills/promql-fmt/`, `skills/label-check/`, `skills/autogen-promql-tests/`,
-  `skills/e2e-alertmanager-test/`, `skills/alert-hysteresis/`,
-  `skills/stale-alerts-analyzer/` — each is a real Agent Skill directory
-  (`SKILL.md` + frontmatter) and can be copied/installed independently, as
-  described above.
-- `PROMQL-CODY.md` is a plain reference doc at the repo root, not a
-  `<dir>/SKILL.md` skill directory, so it isn't independently
-  installable via the mechanisms above. Read it directly (or point an
-  agent at the file) for the cross-tool workflow guidance; it isn't meant
-  to be copied into a skills directory on its own.
+- `skills/promql-cody/`, `skills/promql-fmt/`, `skills/label-check/`,
+  `skills/autogen-promql-tests/`, `skills/e2e-alertmanager-test/`,
+  `skills/alert-hysteresis/`, `skills/stale-alerts-analyzer/` — each is a
+  real Agent Skill directory (`SKILL.md` + frontmatter) and can be
+  copied/installed independently, as described above. Install
+  `skills/promql-cody/` for the cross-tool orchestration skill, or any of
+  the other six for a single tool's usage instructions.
+- `PROMQL-CODY.md` at the repo root is a plain landing-page doc, not a
+  `<dir>/SKILL.md` skill directory itself, so it isn't independently
+  installable via the mechanisms above — it exists for humans browsing the
+  repo and points at `skills/promql-cody/SKILL.md`, which is what you
+  actually install.

@@ -6,6 +6,15 @@
   "description": "PromQL-Cody: Agent Skills for the o11y-analysis-tools PromQL/Alertmanager CLIs (promql-fmt, label-check, autogen-promql-tests, e2e-alertmanager-test, alert-hysteresis, stale-alerts-analyzer)",
   "plugins": [
     {
+      "name": "promql-cody",
+      "source": "./",
+      "skills": ["./skills/promql-cody"],
+      "description": "Unified agent: orchestrates all six PromQL/Alertmanager CLIs together, deciding which are hermetic/CI-safe vs. interactive-only and in what order to run them.",
+      "license": "BSD-3-Clause",
+      "keywords": ["promql", "prometheus", "alertmanager", "orchestration"],
+      "strict": false
+    },
+    {
       "name": "promql-fmt",
       "source": "./",
       "skills": ["./skills/promql-fmt"],
