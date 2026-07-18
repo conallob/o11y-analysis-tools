@@ -25,9 +25,14 @@ PromQL-Cody to get the combined picture.
 | [`promql-fmt`](skills/promql-fmt/SKILL.md) | Format/validate PromQL multiline style + best-practice lint | Yes | Interactive **and** CI | none |
 | [`label-check`](skills/label-check/SKILL.md) | Enforce required labels on expressions/alerts | Yes | Interactive **and** CI | none |
 | [`autogen-promql-tests`](skills/autogen-promql-tests/SKILL.md) | Generate `promtool`-style unit test skeletons | Yes | Interactive, to bootstrap coverage | none |
-| [`e2e-alertmanager-test`](skills/e2e-alertmanager-test/SKILL.md) | Render alert notifications (email/Slack/JSON) end-to-end — a "print preview" for alerts | Semi (needs a running Alertmanager, but it can be an ephemeral/disposable one) | CI, producing a diffable artifact; also useful interactively | a running Alertmanager + a Prometheus unit-test file |
+| [`e2e-alertmanager-test`](skills/e2e-alertmanager-test/SKILL.md) | Render alert notifications (email/Slack/JSON) end-to-end — a "print preview" for alerts | Yes\*, with a skeleton config (see its skill) | CI, producing a diffable artifact; also useful interactively | an ephemeral Alertmanager + a Prometheus unit-test file |
 | [`alert-hysteresis`](skills/alert-hysteresis/SKILL.md) | Recommend `for:` duration tuning from real firing history | No | Interactive, as needed | live Prometheus with historical `ALERTS` data |
 | [`stale-alerts-analyzer`](skills/stale-alerts-analyzer/SKILL.md) | Flag alerts that rarely/never fire — "dead code analysis" for alerts | No | Interactive, periodic cleanup | live Prometheus with historical `ALERTS` data |
+
+\* Only when its ephemeral Alertmanager is loaded with a skeleton config
+that overrides receiver connection details. Pointed at a real/unmodified
+Alertmanager config, it can dispatch real notifications and is not
+hermetic.
 
 ## Two families of tools
 
@@ -47,13 +52,19 @@ real production firing patterns — so treat them as interactive,
 judgment-assisted tools you run during an alert-quality review, not as a
 merge-blocking gate.
 
-`e2e-alertmanager-test` sits between the two families: it does need a
-live Alertmanager to POST alerts to, but that instance can be a short-lived
-container seeded purely from the fixtures in a Prometheus unit-test file
-(the same file `autogen-promql-tests` scaffolds). Because that dependency
-is disposable and reproducible, this tool *can* run in CI — its payoff
-there is a generated notification-preview artifact that reviewers can diff
-release over release, the way a snapshot test diffs UI screenshots.
+`e2e-alertmanager-test` needs a live Alertmanager to POST alerts to, but
+that instance can be a short-lived container, and — unlike the two tools
+above — its output doesn't depend on irreproducible production history.
+Point that ephemeral Alertmanager at a **skeleton config** that preserves
+the team's real `route:`/`inhibit_rules:` but overrides every receiver's
+connection details (SMTP smarthost, Slack/webhook URLs) with local no-op
+values, and the whole run becomes fully hermetic: real routing logic is
+still exercised, but no notification ever leaves the runner. That's what
+makes it safe to run in CI — its payoff there is a generated
+notification-preview artifact that reviewers can diff release over
+release, the way a snapshot test diffs UI screenshots. See the
+[`e2e-alertmanager-test` skill](skills/e2e-alertmanager-test/SKILL.md#achieving-full-hermeticity-in-ci)
+for how to build that skeleton config.
 
 ## Suggested workflow
 
@@ -64,7 +75,8 @@ release over release, the way a snapshot test diffs UI screenshots.
    is added, to scaffold a `_test.yml` (then hand-fill the `TODO`s).
 5. `promtool test rules ./*_test.yml` — run the generated unit tests.
 6. `e2e-alertmanager-test --tests=... --output=full` against an ephemeral
-   Alertmanager in CI — produces a diffable notification-preview artifact.
+   Alertmanager loaded with a skeleton config in CI — produces a diffable
+   notification-preview artifact without sending any real notification.
 7. Periodically (e.g. quarterly, or when on-call flags alert fatigue), run
    `alert-hysteresis` and `stale-alerts-analyzer` interactively against
    production Prometheus to tune `for:` durations and cull dead alerts.

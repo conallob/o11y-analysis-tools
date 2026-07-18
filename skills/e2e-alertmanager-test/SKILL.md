@@ -1,6 +1,6 @@
 ---
 name: e2e-alertmanager-test
-description: Render end-to-end previews of what an alert notification will actually look like (plain-text email, HTML email, Slack attachment JSON, raw webhook JSON) by replaying a Prometheus unit-test file's expected alerts through a live Alertmanager. Effectively a "print preview" for alerts. Use to review notification formatting/content before merging alert changes, or in CI against an ephemeral Alertmanager to produce a diffable preview artifact. Requires a reachable Alertmanager API and a promtool-style unit-test file as input — not hermetic on its own, but reproducible when the Alertmanager is disposable.
+description: Render end-to-end previews of what an alert notification will actually look like (plain-text email, HTML email, Slack attachment JSON, raw webhook JSON) by replaying a Prometheus unit-test file's expected alerts through a live Alertmanager. Effectively a "print preview" for alerts. Use to review notification formatting/content before merging alert changes, or in CI against an ephemeral Alertmanager to produce a diffable preview artifact. Requires a reachable Alertmanager API and a promtool-style unit-test file as input. Can be made fully hermetic in CI by pointing the ephemeral Alertmanager at a skeleton config that keeps the team's real routing/grouping/inhibition rules but overrides receiver connection details, so no real notification ever leaves the runner.
 license: BSD-3-Clause
 ---
 
@@ -18,13 +18,14 @@ instance is actually configured with, and shows you the rendered output.
 - Before merging an alert change, to see the actual notification content
   (subject line, body, Slack attachment) a human on-call would receive —
   not just "does it fire," but "does it read well."
-- As a CI step against a **throwaway/ephemeral** Alertmanager container
-  (seeded with nothing but the test config you spin up for the run),
+- As a CI step against a **throwaway/ephemeral** Alertmanager container,
   producing a rendered-output artifact that reviewers can diff between
-  runs, the same way a UI snapshot test is diffed.
-- This tool's own non-hermetic part is the Alertmanager dependency, not
+  runs, the same way a UI snapshot test is diffed. Fed a skeleton config
+  (see below), this run is fully hermetic — see [Achieving full
+  hermeticity in CI](#achieving-full-hermeticity-in-ci).
+- This tool's own external dependency is the Alertmanager instance, not
   historical data — unlike `alert-hysteresis`/`stale-alerts-analyzer`, it
-  needs no real production history, so a fresh, empty Alertmanager
+  needs no real production history, so a fresh, disposable Alertmanager
   instance is sufficient and the run is fully reproducible.
 
 ## Prerequisites
@@ -39,6 +40,43 @@ instance is actually configured with, and shows you the rendered output.
    ```bash
    docker run -d -p 9093:9093 prom/alertmanager
    ```
+
+## Achieving full hermeticity in CI
+
+The `e2e-alertmanager-test` binary itself is never hermetic on its own —
+it always needs to POST to a real, reachable Alertmanager. But the
+routing config *that Alertmanager instance loads* is entirely under your
+control, and that's where every external dependency can be removed:
+
+1. Treat the team's real `alertmanager.yml` — the one that governs
+   production `route:` and `inhibit_rules:` — as the source of truth for
+   routing/grouping/inhibition logic. That's the logic worth exercising
+   in a test.
+2. Build a **skeleton config** for CI that keeps that routing tree intact
+   but overrides every receiver's connection details — `smtp_smarthost`,
+   Slack `api_url`, PagerDuty/webhook URLs and keys — with local, no-op
+   values. For example, point `smtp_smarthost` at a local SMTP catcher
+   (e.g. MailHog/smtp4dev) instead of the real relay, so the receiver
+   still accepts a connection and the message headers can be rendered and
+   diffed, but no mail actually leaves the runner.
+3. Start the ephemeral Alertmanager for the CI job with the skeleton
+   config, not the real one, and point `--alertmanager-url` at it.
+
+With this setup, the Alertmanager under test still runs the real
+routing/grouping/inhibition rules — so a routing regression still
+surfaces in the diff — but delivery stops at the local catcher: no real
+email, Slack message, or PagerDuty incident is ever created. That's what
+makes this tool's CI output (rendered notification content, including
+SMTP headers) safe to treat as a fully hermetic, deterministic artifact.
+Generating and maintaining the skeleton config (importing the team's
+routing tree while stripping receiver secrets) is on you — this repo
+doesn't ship tooling for that merge/override step, and `--alertmanager-config`
+(below) does not perform it either; it only enriches this tool's own
+rendered output text.
+
+Keep the skeleton config's routing tree in sync with the real one, ideally
+generated from it rather than hand-maintained — if it drifts, a green CI
+run stops guaranteeing anything about production routing.
 
 ## Setup
 
@@ -105,9 +143,13 @@ outcomes, it only renders notification content.
    if not, point the user at `autogen-promql-tests` first.
 2. Confirm an Alertmanager is reachable at `--alertmanager-url` (start a
    disposable one via Docker if none is running and this is a local/CI
-   context — never point this at a production Alertmanager, since it
-   really posts alerts that a real Alertmanager will route to real
-   receivers).
+   context). **Never point this at a production Alertmanager** — it really
+   posts alerts, and a receiver with live connection details will really
+   dispatch them. For CI, load the disposable instance with a [skeleton
+   config](#achieving-full-hermeticity-in-ci) that keeps real
+   routing/grouping/inhibition but swaps receiver connection details for
+   local no-op ones, so the run stays hermetic even though it exercises
+   real routing logic.
 3. Run with `--output=full` to capture every rendering for a
    comprehensive review, or `--output=slack`/`--output=email-html` when a
    user specifically wants to review one channel's format.
