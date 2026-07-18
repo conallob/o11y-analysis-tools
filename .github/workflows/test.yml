@@ -5,7 +5,15 @@ on:
     branches:
       - main
       - 'claude/**'
+    paths-ignore:
+      - '**.md'
+      - 'skills/**'
+      - '.claude-plugin/**'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'skills/**'
+      - '.claude-plugin/**'
 
 jobs:
   test:
