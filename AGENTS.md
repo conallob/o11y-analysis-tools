@@ -43,11 +43,11 @@ label-check → generate tests → preview notifications → periodically
 tune/cull alerts). Treat it as the entry point; the per-tool skill files
 below are the detail it links out to.
 
-Unlike the root [`PROMQL-CODY.md`](PROMQL-CODY.md) landing page (a plain
-doc, not independently installable), `skills/promql-cody/` is a real
-`SKILL.md` directory — install it the same way as the six tool skills
-below, including via this repo's Claude Code plugin marketplace
-(`promql-cody@o11y-analysis-tools`).
+`skills/promql-cody/` is a real `SKILL.md` directory — install it the same
+way as the six tool skills below, including via this repo's Claude Code
+plugin marketplace (`promql-cody@o11y-analysis-tools`). See
+[`README.md`](README.md#agent-skills) for the human-readable overview of
+all seven skills.
 
 ## Individual tool skills
 
