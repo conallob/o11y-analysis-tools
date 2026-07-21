@@ -35,13 +35,14 @@ committing — CI (`.github/workflows/test.yml`) runs the same commands with
 ## PromQL-Cody: the unified agent
 
 **[`skills/promql-cody/SKILL.md`](skills/promql-cody/SKILL.md)** is this
-repo's unified Agent Skill — named after and dedicated to the late Cody
-Smith. Load it first: it teaches an agent how to use all six tools below
-*together* (which are hermetic and CI-safe vs. interactive-only, the
-two-families breakdown, and the recommended end-to-end workflow — format →
-label-check → generate tests → preview notifications → periodically
-tune/cull alerts). Treat it as the entry point; the per-tool skill files
-below are the detail it links out to.
+repo's unified Agent Skill — named after and dedicated to the late
+[Cody Smith](https://supah.green). Load it first: it teaches an agent
+how to use all six tools below *together* (which are hermetic and
+CI-safe vs. interactive-only, the two-families breakdown, and the
+recommended end-to-end workflow — format → label-check → generate tests
+→ preview notifications → periodically tune/cull alerts). Treat it as
+the entry point; the per-tool skill files below are the detail it links
+out to.
 
 `skills/promql-cody/` is a real `SKILL.md` directory — install it the same
 way as the six tool skills below, including via this repo's Claude Code
