@@ -10,11 +10,22 @@ format is an open, cross-vendor standard, not something specific to Claude,
 so the same seven directories install into any agent that speaks it. This
 doc covers three ways to get them: local copy (works everywhere, zero
 setup), the Claude Code plugin marketplace (this repo ships a working
-manifest), and the equivalent mechanisms in other agents.
+manifest), and the equivalent mechanisms in other agents. For an overview
+of what each skill does and how they fit together, see
+[README.md#agent-skills](README.md#agent-skills).
 
-[`PROMQL-CODY.md`](PROMQL-CODY.md) at the repo root is a short landing
-page pointing at `skills/promql-cody/SKILL.md` — read it for an overview,
-but install the `skills/promql-cody/` directory, not the root file.
+## Table of Contents
+
+- [1. Claude Code](#1-claude-code)
+  - [Quickest: copy the skill directory](#quickest-copy-the-skill-directory)
+  - [Via the plugin marketplace](#via-the-plugin-marketplace)
+  - [Via a community marketplace listing](#via-a-community-marketplace-listing)
+  - [Via the official Anthropic marketplace](#via-the-official-anthropic-marketplace)
+- [2. Other agents (the agentskills.io open standard)](#2-other-agents-the-agentskillsio-open-standard)
+  - [OpenAI Codex CLI](#openai-codex-cli)
+  - [Cursor](#cursor)
+  - [Everything else that speaks the standard](#everything-else-that-speaks-the-standard)
+- [Which files are and aren't installable skills](#which-files-are-and-arent-installable-skills)
 
 ## 1. Claude Code
 
@@ -135,8 +146,7 @@ move a skill from one compliant agent to another.
   copied/installed independently, as described above. Install
   `skills/promql-cody/` for the cross-tool orchestration skill, or any of
   the other six for a single tool's usage instructions.
-- `PROMQL-CODY.md` at the repo root is a plain landing-page doc, not a
-  `<dir>/SKILL.md` skill directory itself, so it isn't independently
-  installable via the mechanisms above — it exists for humans browsing the
-  repo and points at `skills/promql-cody/SKILL.md`, which is what you
-  actually install.
+- [README.md](README.md#agent-skills) covers the same seven skills for
+  humans browsing the repo, but is itself a plain doc, not a
+  `<dir>/SKILL.md` skill directory — install the `skills/<tool>/`
+  directories described above, not the README file.

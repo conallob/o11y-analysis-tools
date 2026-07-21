@@ -8,6 +8,32 @@
 
 A collection of static analysis and testing tools for PromQL-compatible monitoring systems. All tools are written in Go and designed for use in CI/CD workflows with `--check` functionality by default.
 
+## Table of Contents
+
+- [Background](#background)
+- [Tools](#tools)
+  1. [promql-fmt - PromQL Expression Formatter](#1-promql-fmt---promql-expression-formatter)
+  2. [label-check - Label Standards Enforcement](#2-label-check---label-standards-enforcement)
+  3. [autogen-promql-tests - PromQL Test Case Generator](#3-autogen-promql-tests---promql-test-case-generator)
+  4. [e2e-alertmanager-test - End-to-End Alertmanager Testing](#4-e2e-alertmanager-test---end-to-end-alertmanager-testing)
+  5. [alert-hysteresis - Alert Hysteresis Analyzer](#5-alert-hysteresis---alert-hysteresis-analyzer)
+  6. [stale-alerts-analyzer - Alert Staleness Analyzer](#6-stale-alerts-analyzer---alert-staleness-analyzer)
+- [Agent Skills](#agent-skills)
+- [Installation](#installation)
+  - [Homebrew (macOS/Linux)](#homebrew-macoslinux)
+  - [Container Images](#container-images)
+  - [Package Managers](#package-managers)
+  - [Pre-built Binaries](#pre-built-binaries)
+  - [Build from source](#build-from-source)
+- [CI/CD Integration](#cicd-integration)
+- [Configuration](#configuration)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [Releasing](#releasing)
+- [License](#license)
+- [Roadmap](#roadmap)
+- [FAQ](#faq)
+
 ## Background
 
 This collection of static analysis tools are intended to help:
@@ -104,68 +130,7 @@ Found 1 expressions with missing required labels
 Required labels: job
 ```
 
-### 3. alert-hysteresis - Alert Hysteresis Analyzer
-
-Analyzes historical alert firing patterns and recommends optimal `for` durations to reduce spurious, unactionable alerts.
-
-**Features:**
-- Queries Prometheus for historical alert firing data
-- Compares actual firing durations with configured `for` values
-- Recommends better hysteresis values based on statistical analysis
-- Identifies spurious short-lived alerts
-- Suggests optimal values to reduce alert fatigue
-
-**Usage:**
-
-```bash
-# Analyze all alerts from last 7 days
-alert-hysteresis --prometheus-url=http://localhost:9090
-
-# Analyze specific alert over 24 hours
-alert-hysteresis --prometheus-url=http://prometheus:9090 \
-  --alert=HighErrorRate \
-  --timeframe=24h
-
-# Compare with configured values in rules file
-alert-hysteresis --prometheus-url=http://prometheus:9090 \
-  --rules=./alerts.yml \
-  --timeframe=7d
-
-# Adjust sensitivity threshold (default: 20% mismatch)
-alert-hysteresis --prometheus-url=http://prometheus:9090 \
-  --threshold=0.3 \
-  --rules=./alerts.yml
-```
-
-**Example Output:**
-
-```
-Fetching alert history from http://prometheus:9090 (timeframe: 168h0m0s)...
-Analyzing 156 alert firing events...
-
-Alert: HighErrorRate
-  Firing events: 45
-  Average duration: 3m24s
-  Median duration: 2m15s
-  Min/Max duration: 45s / 25m30s
-  Configured 'for': 30s
-  ⚠ RECOMMENDATION: Change 'for' duration to 2m
-     Reason: 33.3% of alerts (15/45) fire for less than 2m, suggesting spurious alerts
-  Spurious alerts (< recommended): 15 (33.3%)
-
-Alert: HighMemoryUsage
-  Firing events: 12
-  Average duration: 45m12s
-  Median duration: 42m0s
-  Min/Max duration: 15m / 2h15m
-  Configured 'for': 30m
-  Recommended 'for': 30m
-  ✓ Current configuration is acceptable
-
-Found 1 alerts that need hysteresis adjustment
-```
-
-### 4. autogen-promql-tests - PromQL Test Case Generator
+### 3. autogen-promql-tests - PromQL Test Case Generator
 
 Automatically generates unit test cases for PromQL expressions to ensure recording rules and metrics calculations work as expected.
 
@@ -212,7 +177,7 @@ tests:
             value: 0.183
 ```
 
-### 5. e2e-alertmanager-test - End-to-End Alertmanager Testing
+### 4. e2e-alertmanager-test - End-to-End Alertmanager Testing
 
 Tests Alertmanager configurations end-to-end, including routing, grouping, inhibition rules, and receiver integrations.
 
@@ -272,6 +237,67 @@ Template Test:
     Runbook: https://runbooks.example.com/high-error-rate
 
 All tests passed ✓
+```
+
+### 5. alert-hysteresis - Alert Hysteresis Analyzer
+
+Analyzes historical alert firing patterns and recommends optimal `for` durations to reduce spurious, unactionable alerts.
+
+**Features:**
+- Queries Prometheus for historical alert firing data
+- Compares actual firing durations with configured `for` values
+- Recommends better hysteresis values based on statistical analysis
+- Identifies spurious short-lived alerts
+- Suggests optimal values to reduce alert fatigue
+
+**Usage:**
+
+```bash
+# Analyze all alerts from last 7 days
+alert-hysteresis --prometheus-url=http://localhost:9090
+
+# Analyze specific alert over 24 hours
+alert-hysteresis --prometheus-url=http://prometheus:9090 \
+  --alert=HighErrorRate \
+  --timeframe=24h
+
+# Compare with configured values in rules file
+alert-hysteresis --prometheus-url=http://prometheus:9090 \
+  --rules=./alerts.yml \
+  --timeframe=7d
+
+# Adjust sensitivity threshold (default: 20% mismatch)
+alert-hysteresis --prometheus-url=http://prometheus:9090 \
+  --threshold=0.3 \
+  --rules=./alerts.yml
+```
+
+**Example Output:**
+
+```
+Fetching alert history from http://prometheus:9090 (timeframe: 168h0m0s)...
+Analyzing 156 alert firing events...
+
+Alert: HighErrorRate
+  Firing events: 45
+  Average duration: 3m24s
+  Median duration: 2m15s
+  Min/Max duration: 45s / 25m30s
+  Configured 'for': 30s
+  ⚠ RECOMMENDATION: Change 'for' duration to 2m
+     Reason: 33.3% of alerts (15/45) fire for less than 2m, suggesting spurious alerts
+  Spurious alerts (< recommended): 15 (33.3%)
+
+Alert: HighMemoryUsage
+  Firing events: 12
+  Average duration: 45m12s
+  Median duration: 42m0s
+  Min/Max duration: 15m / 2h15m
+  Configured 'for': 30m
+  Recommended 'for': 30m
+  ✓ Current configuration is acceptable
+
+Found 1 alerts that need hysteresis adjustment
 ```
 
 ### 6. stale-alerts-analyzer - Alert Staleness Analyzer
@@ -353,6 +379,34 @@ Recommendations:
   - Consider lowering thresholds or improving sensitivity
 ```
 
+## Agent Skills
+
+Beyond the CLI binaries above, every tool also ships as an installable
+[Agent Skill](https://agentskills.io) — a `skills/<tool>/SKILL.md` file
+(YAML frontmatter + instructions) that teaches a coding agent how to invoke
+that tool, parse its output, and where it fits in a workflow. Install
+skills on a case-by-case basis or all at once:
+
+- **Case by case** — install only the skill(s) for the tools you use:
+  [`promql-fmt`](skills/promql-fmt/SKILL.md),
+  [`label-check`](skills/label-check/SKILL.md),
+  [`autogen-promql-tests`](skills/autogen-promql-tests/SKILL.md),
+  [`e2e-alertmanager-test`](skills/e2e-alertmanager-test/SKILL.md),
+  [`alert-hysteresis`](skills/alert-hysteresis/SKILL.md),
+  [`stale-alerts-analyzer`](skills/stale-alerts-analyzer/SKILL.md).
+- **Collectively, as PromQL-Cody** — install
+  [`skills/promql-cody/SKILL.md`](skills/promql-cody/SKILL.md), the unified
+  skill that orchestrates all six together: which are hermetic/CI-safe
+  versus interactive-only, and the suggested end-to-end workflow. Named
+  after and dedicated to the late [Cody Smith](https://supah.green).
+
+All seven directories are plain, cross-vendor Agent Skills, so they install
+the same way into any agent that speaks the open
+[agentskills.io](https://agentskills.io) standard (Claude Code, OpenAI
+Codex, Cursor, and others) — via a local copy, this repo's Claude Code
+plugin marketplace, or a community/official marketplace listing. Full
+instructions for every install path: **[INSTALLING.md](INSTALLING.md)**.
+
 ## Installation
 
 ### Homebrew (macOS/Linux)
@@ -369,9 +423,9 @@ Each tool is available as a container image:
 # Pull specific tools
 docker pull ghcr.io/conallob/promql-fmt:latest
 docker pull ghcr.io/conallob/label-check:latest
-docker pull ghcr.io/conallob/alert-hysteresis:latest
 docker pull ghcr.io/conallob/autogen-promql-tests:latest
 docker pull ghcr.io/conallob/e2e-alertmanager-test:latest
+docker pull ghcr.io/conallob/alert-hysteresis:latest
 docker pull ghcr.io/conallob/stale-alerts-analyzer:latest
 
 # Run in container
@@ -418,9 +472,9 @@ make build
 # Or build individually
 go build -o bin/promql-fmt ./cmd/promql-fmt
 go build -o bin/label-check ./cmd/label-check
-go build -o bin/alert-hysteresis ./cmd/alert-hysteresis
 go build -o bin/autogen-promql-tests ./cmd/autogen-promql-tests
 go build -o bin/e2e-alertmanager-test ./cmd/e2e-alertmanager-test
+go build -o bin/alert-hysteresis ./cmd/alert-hysteresis
 go build -o bin/stale-alerts-analyzer ./cmd/stale-alerts-analyzer
 
 # Install to $GOPATH/bin
@@ -529,8 +583,10 @@ rules_file: ./prometheus/alerts.yml
 
 ## Documentation
 
+- **[INSTALLING.md](INSTALLING.md)** - Installing the Agent Skills (local copy, plugin marketplace, other agents)
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contributing guidelines, development setup, and testing
 - **[RELEASING.md](RELEASING.md)** - Release process and versioning
+- **[AGENTS.md](AGENTS.md)** - Cross-tool agent instructions (agents.md convention)
 - **[CLAUDE.md](CLAUDE.md)** - AI assistant guidance for working with this codebase
 
 ## Contributing
