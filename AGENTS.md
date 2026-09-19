@@ -114,15 +114,16 @@ listings, are in **[`INSTALLING.md`](INSTALLING.md)**; short version:
   personal/project respectively). No file edits needed; the format is the
   same across compliant agents.
 - **Claude Code plugin marketplace**: this repo ships a working
-  `.claude-plugin/marketplace.json`. From inside Claude Code:
+  `.claude-plugin/marketplace.json` publishing a single `promql-cody`
+  plugin that bundles all seven skills. From inside Claude Code:
   ```
   /plugin marketplace add conallob/o11y-analysis-tools
   /plugin install promql-cody@o11y-analysis-tools
   ```
-  (repeat per tool — `promql-fmt`, `label-check`, `autogen-promql-tests`,
-  `e2e-alertmanager-test`, `alert-hysteresis`, `stale-alerts-analyzer` —
-  or non-interactively via `claude plugin marketplace add ...` /
-  `claude plugin install ...`).
+  (or non-interactively via `claude plugin marketplace add ...` /
+  `claude plugin install promql-cody@o11y-analysis-tools`). One install
+  gets all six tool skills plus the orchestrator — there's no per-tool
+  plugin to install separately.
 - **Community/official marketplaces**: see `INSTALLING.md` for
   `claudemarketplaces.com`, `skillsmp.com`, `aitmpl.com`, and the
   `anthropics/claude-plugins-official` / `anthropics/skills` submission

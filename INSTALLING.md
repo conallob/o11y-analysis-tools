@@ -49,29 +49,32 @@ once (`cp -r skills/* ~/.claude/skills/`).
 ### Via the plugin marketplace
 
 This repo ships a `.claude-plugin/marketplace.json` (validated with
-`claude plugin validate .`) that lists each of the six tools as an
-independently installable plugin. From inside Claude Code:
+`claude plugin validate .`) that publishes a single plugin,
+`promql-cody`, bundling all seven skills — the unified agent plus all
+six per-tool skills — so one install gets you everything. From inside
+Claude Code:
 
 ```
 /plugin marketplace add conallob/o11y-analysis-tools
 /plugin install promql-cody@o11y-analysis-tools
-/plugin install promql-fmt@o11y-analysis-tools
-/plugin install label-check@o11y-analysis-tools
-/plugin install autogen-promql-tests@o11y-analysis-tools
-/plugin install e2e-alertmanager-test@o11y-analysis-tools
-/plugin install alert-hysteresis@o11y-analysis-tools
-/plugin install stale-alerts-analyzer@o11y-analysis-tools
 ```
 
 Or non-interactively (scripting/CI):
 
 ```bash
 claude plugin marketplace add conallob/o11y-analysis-tools
-claude plugin install promql-fmt@o11y-analysis-tools
+claude plugin install promql-cody@o11y-analysis-tools
 ```
 
-Install only the tools you need — each plugin is independent. Refresh
-after a repo update with `/plugin marketplace update o11y-analysis-tools`.
+Refresh after a repo update with
+`/plugin marketplace update o11y-analysis-tools`. Earlier versions of
+this manifest published each tool as its own plugin, but every plugin
+entry pointed `source` at the repo root, so each install pulled in all
+seven skills regardless — installing all seven "independent" plugins
+multiplied out to 7×7 skill copies. A single `promql-cody` plugin avoids
+that blowup entirely; if you only want one tool's skill without the
+others, use the [copy-the-skill-directory](#quickest-copy-the-skill-directory)
+method above instead.
 
 ### Via a community marketplace listing
 
