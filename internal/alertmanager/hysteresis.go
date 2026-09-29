@@ -6,11 +6,7 @@
 package alertmanager
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"sort"
 	"time"
@@ -22,6 +18,7 @@ import (
 type HysteresisAnalyzer struct {
 	prometheusURL string
 	verbose       bool
+	pagination    PaginationOptions
 }
 
 // AlertEvent represents a single alert firing event
@@ -70,6 +67,11 @@ func NewHysteresisAnalyzer(prometheusURL string, verbose bool) *HysteresisAnalyz
 	}
 }
 
+// SetPagination configures how long time ranges are split into multiple queries.
+func (a *HysteresisAnalyzer) SetPagination(opts PaginationOptions) {
+	a.pagination = opts
+}
+
 // FetchAlertHistory fetches alert firing history from Prometheus
 func (a *HysteresisAnalyzer) FetchAlertHistory(timeframe time.Duration, alertName string) (map[string][]AlertEvent, error) {
 	// Query for ALERTS metric which tracks firing alerts
@@ -78,50 +80,25 @@ func (a *HysteresisAnalyzer) FetchAlertHistory(timeframe time.Duration, alertNam
 		query = fmt.Sprintf(`ALERTS{alertname="%s"}`, alertName)
 	}
 
-	// Build query URL
 	endTime := time.Now()
 	startTime := endTime.Add(-timeframe)
 
-	params := url.Values{}
-	params.Add("query", query)
-	params.Add("start", fmt.Sprintf("%d", startTime.Unix()))
-	params.Add("end", fmt.Sprintf("%d", endTime.Unix()))
-	params.Add("step", "60s") // 1 minute resolution
-
-	queryURL := fmt.Sprintf("%s/api/v1/query_range?%s", a.prometheusURL, params.Encode())
-
-	if a.verbose {
-		fmt.Printf("Query URL: %s\n", queryURL)
-	}
-
-	// Make HTTP request
-	resp, err := http.Get(queryURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query Prometheus: %w", err)
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			if err == nil {
-				err = closeErr
+	// Page through the time range so no single request returns too many points
+	series, err := queryRangePaged(a.prometheusURL, query, startTime, endTime, time.Minute, a.pagination,
+		func(i, total int, w timeWindow) {
+			if a.verbose {
+				fmt.Printf("Query page %d/%d: %s to %s\n", i+1, total,
+					w.start.Format(time.RFC3339), w.end.Format(time.RFC3339))
 			}
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("prometheus returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	// Parse response
-	var promResp PrometheusResponse
-	if err := json.NewDecoder(resp.Body).Decode(&promResp); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+		})
+	if err != nil {
+		return nil, err
 	}
 
 	// Process results into alert events
 	events := make(map[string][]AlertEvent)
 
-	for _, result := range promResp.Data.Result {
+	for _, result := range series {
 		alertName := result.Metric["alertname"]
 		if alertName == "" {
 			continue
@@ -451,6 +428,12 @@ func GetAlertNamesFromRules(filename string) ([]string, error) {
 // Returns a map of alert name to last fired time (zero time if never fired)
 // lookbackPeriod specifies how far back to search (e.g., 365 days for 1 year)
 func FindLastFiredTimes(prometheusURL string, alertNames []string, lookbackPeriod time.Duration, verbose bool) (map[string]time.Time, error) {
+	return FindLastFiredTimesPaged(prometheusURL, alertNames, lookbackPeriod, verbose, PaginationOptions{})
+}
+
+// FindLastFiredTimesPaged is like FindLastFiredTimes but splits the lookback period into
+// multiple queries according to opts, so long lookbacks don't exceed server limits.
+func FindLastFiredTimesPaged(prometheusURL string, alertNames []string, lookbackPeriod time.Duration, verbose bool, opts PaginationOptions) (map[string]time.Time, error) {
 	lastFired := make(map[string]time.Time)
 
 	// Initialize all alerts with zero time (never fired)
@@ -464,42 +447,24 @@ func FindLastFiredTimes(prometheusURL string, alertNames []string, lookbackPerio
 	endTime := time.Now()
 	startTime := endTime.Add(-lookbackPeriod)
 
-	params := url.Values{}
-	params.Add("query", query)
-	params.Add("start", fmt.Sprintf("%d", startTime.Unix()))
-	params.Add("end", fmt.Sprintf("%d", endTime.Unix()))
-	params.Add("step", "3600s") // 1 hour resolution to reduce data volume
-
-	queryURL := fmt.Sprintf("%s/api/v1/query_range?%s", prometheusURL, params.Encode())
-
 	if verbose {
 		fmt.Printf("Querying Prometheus for alert history (lookback: %s)...\n", lookbackPeriod)
 	}
 
-	resp, err := http.Get(queryURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query Prometheus: %w", err)
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			if err == nil {
-				err = closeErr
+	// 1 hour resolution to reduce data volume, paged to bound per-request size
+	series, err := queryRangePaged(prometheusURL, query, startTime, endTime, time.Hour, opts,
+		func(i, total int, w timeWindow) {
+			if verbose {
+				fmt.Printf("Query page %d/%d: %s to %s\n", i+1, total,
+					w.start.Format(time.RFC3339), w.end.Format(time.RFC3339))
 			}
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("prometheus returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var promResp PrometheusResponse
-	if err := json.NewDecoder(resp.Body).Decode(&promResp); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+		})
+	if err != nil {
+		return nil, err
 	}
 
 	// Process results to find last firing time for each alert
-	for _, result := range promResp.Data.Result {
+	for _, result := range series {
 		alertName := result.Metric["alertname"]
 		if alertName == "" {
 			continue

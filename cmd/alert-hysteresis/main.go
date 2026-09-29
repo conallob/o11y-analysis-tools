@@ -19,6 +19,8 @@ func main() {
 		rulesFile        = flag.String("rules", "", "path to Prometheus rules file to compare against")
 		fixMode          = flag.Bool("fix", false, "automatically update rules file with recommendations (requires --rules and --target-percentile)")
 		targetPercentile = flag.Float64("target-percentile", 0.3, "target percentile for alert threshold (0-1, default: 0.3)")
+		maxPoints        = flag.Int("max-points-per-query", alertmanager.DefaultMaxPointsPerQuery, "maximum data points per series per Prometheus query; longer timeframes are split into multiple queries (Prometheus rejects >11000)")
+		queryDelay       = flag.Duration("query-delay", 0, "pause between paginated Prometheus queries (e.g. 500ms)")
 		verbose          = flag.Bool("verbose", false, "verbose output")
 	)
 
@@ -36,7 +38,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  alert-hysteresis --alert=HighErrorRate --rules=./alerts.yml\n\n")
 		fmt.Fprintf(os.Stderr, "  # Fix mode: update rules file with recommendations\n")
 		fmt.Fprintf(os.Stderr, "  alert-hysteresis --fix --rules=./alerts.yml --target-percentile=0.25\n")
-		fmt.Fprintf(os.Stderr, "  alert-hysteresis --fix --rules=./alerts.yml --target-percentile=0.5\n")
+		fmt.Fprintf(os.Stderr, "  alert-hysteresis --fix --rules=./alerts.yml --target-percentile=0.5\n\n")
+		fmt.Fprintf(os.Stderr, "  # Collect 90 days of history in paginated queries, pausing between pages\n")
+		fmt.Fprintf(os.Stderr, "  alert-hysteresis --timeframe=2160h --max-points-per-query=5000 --query-delay=500ms\n")
 	}
 
 	flag.Parse()
@@ -61,8 +65,19 @@ func main() {
 		}
 	}
 
+	if *maxPoints < 1 {
+		fmt.Fprintf(os.Stderr, "Error: --max-points-per-query must be at least 1\n")
+		os.Exit(1)
+	}
+	if *queryDelay < 0 {
+		fmt.Fprintf(os.Stderr, "Error: --query-delay must not be negative\n")
+		os.Exit(1)
+	}
+
 	// Create analyzer
 	analyzer := alertmanager.NewHysteresisAnalyzer(*prometheusURL, *verbose)
+
+	analyzer.SetPagination(alertmanager.PaginationOptions{MaxPointsPerQuery: *maxPoints, Delay: *queryDelay})
 
 	// Fetch alert history
 	fmt.Printf("Fetching alert history from %s (timeframe: %s)...\n", *prometheusURL, *timeframe)

@@ -97,6 +97,8 @@ func main() {
 		rulesFile      = flag.String("rules", "", "path to Prometheus rules file (required)")
 		timeHorizonStr = flag.String("timehorizon", "12M", "time horizon for stale alerts (units: h=hours, d=days, w=weeks, M=months, y=years)")
 		fixMode        = flag.Bool("fix", false, "automatically delete stale alerts from rules file")
+		maxPoints      = flag.Int("max-points-per-query", alertmanager.DefaultMaxPointsPerQuery, "maximum data points per series per Prometheus query; longer horizons are split into multiple queries (Prometheus rejects >11000)")
+		queryDelay     = flag.Duration("query-delay", 0, "pause between paginated Prometheus queries (e.g. 500ms)")
 		verbose        = flag.Bool("verbose", false, "verbose output")
 	)
 
@@ -120,7 +122,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  # Check with time horizon in days (90 days)\n")
 		fmt.Fprintf(os.Stderr, "  stale-alerts-analyzer --rules=./alerts.yml --timehorizon=90d\n\n")
 		fmt.Fprintf(os.Stderr, "  # Fix mode: automatically delete stale alerts\n")
-		fmt.Fprintf(os.Stderr, "  stale-alerts-analyzer --fix --rules=./alerts.yml --timehorizon=1y\n")
+		fmt.Fprintf(os.Stderr, "  stale-alerts-analyzer --fix --rules=./alerts.yml --timehorizon=1y\n\n")
+		fmt.Fprintf(os.Stderr, "  # Smaller pages with a delay between queries, for a busy Prometheus\n")
+		fmt.Fprintf(os.Stderr, "  stale-alerts-analyzer --rules=./alerts.yml --max-points-per-query=2000 --query-delay=1s\n")
 	}
 
 	flag.Parse()
@@ -151,6 +155,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *maxPoints < 1 {
+		fmt.Fprintf(os.Stderr, "Error: --max-points-per-query must be at least 1\n")
+		os.Exit(1)
+	}
+	if *queryDelay < 0 {
+		fmt.Fprintf(os.Stderr, "Error: --query-delay must not be negative\n")
+		os.Exit(1)
+	}
+
 	// Load alert names from rules file
 	fmt.Printf("Loading alerts from %s...\n", *rulesFile)
 	alertNames, err := alertmanager.GetAlertNamesFromRules(*rulesFile)
@@ -172,7 +185,8 @@ func main() {
 	fmt.Printf("Looking back %s for alert activity...\n", formatDurationHuman(timeHorizon))
 	fmt.Println()
 
-	lastFired, err := alertmanager.FindLastFiredTimes(*prometheusURL, alertNames, timeHorizon, *verbose)
+	lastFired, err := alertmanager.FindLastFiredTimesPaged(*prometheusURL, alertNames, timeHorizon, *verbose,
+		alertmanager.PaginationOptions{MaxPointsPerQuery: *maxPoints, Delay: *queryDelay})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error querying Prometheus: %v\n", err)
 		os.Exit(1)

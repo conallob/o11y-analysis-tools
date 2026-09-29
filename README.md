@@ -249,6 +249,7 @@ Analyzes historical alert firing patterns and recommends optimal `for` durations
 - Recommends better hysteresis values based on statistical analysis
 - Identifies spurious short-lived alerts
 - Suggests optimal values to reduce alert fatigue
+- Paginates long timeframes into multiple bounded queries (`--max-points-per-query`, `--query-delay`) so historic collection doesn't overload Prometheus
 
 **Usage:**
 
@@ -270,6 +271,13 @@ alert-hysteresis --prometheus-url=http://prometheus:9090 \
 alert-hysteresis --prometheus-url=http://prometheus:9090 \
   --threshold=0.3 \
   --rules=./alerts.yml
+
+# Collect 90 days of history in pages of at most 5000 points per series,
+# pausing 500ms between queries (default page size: 10000; Prometheus caps at 11000)
+alert-hysteresis --prometheus-url=http://prometheus:9090 \
+  --timeframe=2160h \
+  --max-points-per-query=5000 \
+  --query-delay=500ms
 ```
 
 **Example Output:**
@@ -310,6 +318,7 @@ Identifies alerts that haven't fired in a specified time period, helping teams c
 - Suggests candidates for deletion or review
 - Differentiates between intentionally quiet alerts and stale rules
 - Exports analysis results for review
+- Paginates long time horizons into multiple bounded queries (`--max-points-per-query`, `--query-delay`) so a year-long lookback doesn't overload Prometheus
 
 **Usage:**
 
@@ -332,6 +341,13 @@ stale-alerts-analyzer --prometheus-url=http://prometheus:9090 \
 stale-alerts-analyzer --prometheus-url=http://prometheus:9090 \
   --days=90 \
   --exclude="DeadMansSwitch,Watchdog"
+
+# Go easy on a busy Prometheus: smaller pages with a delay between queries
+stale-alerts-analyzer --prometheus-url=http://prometheus:9090 \
+  --rules=./alerts.yml \
+  --timehorizon=1y \
+  --max-points-per-query=2000 \
+  --query-delay=1s
 ```
 
 **Example Output:**
