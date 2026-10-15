@@ -1,6 +1,7 @@
 # o11y-analysis-tools
 
 [![Test](https://github.com/conallob/o11y-analysis-tools/workflows/Test/badge.svg)](https://github.com/conallob/o11y-analysis-tools/actions)
+[![Listed on ClaudePluginHub](https://www.claudepluginhub.com/badge/conallob-promql-cody)](https://www.claudepluginhub.com/plugins/conallob-promql-cody?ref=badge)
 [![codecov](https://codecov.io/gh/conallob/o11y-analysis-tools/branch/main/graph/badge.svg)](https://codecov.io/gh/conallob/o11y-analysis-tools)
 [![Go Version](https://img.shields.io/badge/Go-1.24%2B-blue)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
