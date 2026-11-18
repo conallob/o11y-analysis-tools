@@ -93,7 +93,7 @@ jobs:
         # Remove continue-on-error once .goreleaser.yml migrates off dockers/
         # docker_manifests/brews to dockers_v2/homebrew_casks.
         continue-on-error: true
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: "~> v2"
